@@ -10,7 +10,7 @@ import { useMediaStream } from './hooks/useMediaStream';
 import { useConversation } from './hooks/useConversation';
 
 export default function App() {
-  const { startCapture, stopCapture, videoRef } = useMediaStream();
+  const { startCapture, stopCapture, videoRef, mediaError, isCapturing } = useMediaStream();
   const { state, messages, costSummary, sendTextMessage } = useConversation();
   const [isActive, setIsActive] = useState(false);
   const [isAccessibility, setIsAccessibility] = useState(false);
@@ -26,11 +26,13 @@ export default function App() {
     (window as any).electronAPI?.toggleAccessibilityMode(next);
   };
 
+  const displayActive = isActive && isCapturing && !mediaError;
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       <div className="p-4 bg-white border-b shadow-sm">
         <div className="max-w-3xl mx-auto">
-          <CameraPreview videoRef={videoRef} isActive={isActive} />
+          <CameraPreview videoRef={videoRef} isActive={displayActive} error={mediaError} />
           <div className="flex items-center justify-between mt-3">
             <StatusIndicator state={state} />
             <span className="text-xs text-gray-400">今日: ¥{costSummary.todayCost.toFixed(4)} · {costSummary.todayTokens} tokens</span>
