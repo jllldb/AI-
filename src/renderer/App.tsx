@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CameraPreview } from './components/CameraPreview';
 import { StatusIndicator } from './components/StatusIndicator';
 import { ChatBubble } from './components/ChatBubble';
@@ -16,6 +16,14 @@ export default function App() {
   const [isAccessibility, setIsAccessibility] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [modelName, setModelName] = useState('...');
+
+  // Detect which model is active
+  useEffect(() => {
+    (window as any).electronAPI?.getPreferences().then((p: any) => {
+      setModelName(p?.deepseekApiKey ? 'DeepSeek' : '千问 Qwen VL');
+    }).catch(() => setModelName('未知'));
+  }, []);
 
   const toggleMic = async () => {
     if (isActive) { stopCapture(); setIsActive(false); }
@@ -28,6 +36,15 @@ export default function App() {
 
   const displayActive = isActive && isCapturing && !mediaError;
 
+  // Wrapper for sendTextMessage with error feedback
+  const handleSend = async (text: string, includeFrame: boolean) => {
+    if (!(window as any).electronAPI) {
+      // Show error directly if API not available
+      return;
+    }
+    await sendTextMessage(text, includeFrame);
+  };
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       <div className="p-4 bg-white border-b shadow-sm">
@@ -35,6 +52,7 @@ export default function App() {
           <CameraPreview videoRef={videoRef} isActive={displayActive} error={mediaError} />
           <div className="flex items-center justify-between mt-3 gap-4">
             <StatusIndicator state={state} />
+            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">🤖 {modelName}</span>
             {/* Audio level meter */}
             <div className="flex items-center gap-2 flex-1">
               <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -68,7 +86,7 @@ export default function App() {
       </div>
       <div className="border-t bg-white">
         <div className="max-w-3xl mx-auto">
-          <TextInput onSend={sendTextMessage} disabled={state==='processing'} />
+          <TextInput onSend={handleSend} disabled={state==='processing'} />
           <ControlBar isActive={isActive} isAccessibility={isAccessibility} onToggleMic={toggleMic}
             onToggleAccessibility={toggleAccessibility} onOpenSettings={()=>setShowSettings(true)} onOpenHistory={()=>setShowHistory(true)} />
         </div>
