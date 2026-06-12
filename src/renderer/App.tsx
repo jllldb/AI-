@@ -10,7 +10,7 @@ import { useMediaStream } from './hooks/useMediaStream';
 import { useConversation } from './hooks/useConversation';
 
 export default function App() {
-  const { startCapture, stopCapture, videoRef, mediaError, isCapturing } = useMediaStream();
+  const { startCapture, stopCapture, videoRef, mediaError, isCapturing, diag } = useMediaStream();
   const { state, messages, transcript, audioLevel, costSummary, sendTextMessage } = useConversation();
   const [isActive, setIsActive] = useState(false);
   const [isAccessibility, setIsAccessibility] = useState(false);
@@ -75,6 +75,21 @@ export default function App() {
       </div>
       {showSettings && <SettingsPanel onClose={()=>setShowSettings(false)} />}
       {showHistory && <HistoryPanel onClose={()=>setShowHistory(false)} />}
+
+      {/* Diagnostic panel */}
+      {(isActive || mediaError) && (
+        <div className="fixed bottom-20 left-4 bg-black/80 text-white rounded-lg p-3 text-xs font-mono z-40 max-w-xs">
+          <p className="font-bold mb-1">🔍 诊断</p>
+          <p>API可用: {diag.apiAvailable ? '✅' : '❌'}</p>
+          <p>设备检测: {diag.devicesChecked ? '✅' : '⏳'} | 摄像头:{diag.hasVideo ? '✅' : '❌'} 麦克风:{diag.hasAudio ? '✅' : '❌'}</p>
+          <p>getUserMedia: {diag.gUMStatus === 'success' ? '✅' : diag.gUMStatus === 'failed' ? '❌' : diag.gUMStatus === 'pending' ? '⏳' : '—'}</p>
+          {diag.gUMError && <p className="text-red-400">错误: {diag.gUMError}</p>}
+          <p>音频轨道: {diag.audioTrackState || '—'}</p>
+          <p>帧已发送: {diag.framesCaptured} | 音频块: {diag.audioChunksSent}</p>
+          <p>音频电平: {audioLevel} | 状态: {state}</p>
+        </div>
+      )}
+
       {costSummary.todayTokens > 0 && (
         <div className="absolute top-4 right-4 bg-white/90 backdrop-blur rounded-lg shadow p-3 text-xs text-gray-500">
           <p>💰 今日: ¥{costSummary.todayCost.toFixed(4)}</p>
