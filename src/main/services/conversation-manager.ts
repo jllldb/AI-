@@ -20,12 +20,14 @@ export class ConversationManager {
     callsSavedByVAD: 0, callsSavedByDedup: 0, callsSavedByCache: 0,
   };
   private lastFrameSentTime = 0;
-
+  private hasDeepSeekKey = false;
   private speechStartTime = 0;
 
   init() {
     const prefs = preferenceStore.getAll();
     this.costSummary.dailyBudget = Number(prefs.dailyBudget) || 5;
+    this.hasDeepSeekKey = !!(prefs.deepseekApiKey && prefs.deepseekApiKey.trim());
+    console.log('[Conv] Init — Qwen key:', !!prefs.qwenApiKey, 'DeepSeek key:', this.hasDeepSeekKey);
 
     vadService.setCallbacks({
       onSpeechStart: () => {
@@ -68,7 +70,7 @@ export class ConversationManager {
       hasNewImage: !!frameToSend, hasSpeech: true, hasTextInput: false,
       isAccessibilityMode: this.isAccessibilityMode, isFollowUp: false,
     };
-    const modelChoice = modelRouter.route(input);
+    const modelChoice = modelRouter.route(input, this.hasDeepSeekKey);
 
     // Show user speech as a message immediately
     const userContent = `🎤 语音输入 (${speechDuration}s)`;
@@ -133,22 +135,28 @@ export class ConversationManager {
       hasNewImage: !!frameToSend, hasSpeech: false, hasTextInput: true,
       isAccessibilityMode: false, isFollowUp: true,
     };
-    const modelChoice = modelRouter.route(input);
+    const modelChoice = modelRouter.route(input, this.hasDeepSeekKey);
 
     let response: AIResponse;
-    if (modelChoice === 'qwen-omni' && frameToSend) {
-      const context = contextManager.getContext();
-      const qr = await qwenClient.multimodalChat({
-        imageBase64: frameToSend, text,
-        contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
-      });
-      response = { text: qr.responseText, visualDescription: qr.visualDescription, modelUsed: 'qwen-omni', tokensUsed: qr.tokensUsed };
-      if (qr.visualDescription) frameDedup.cacheDescription(qr.visualDescription);
-    } else {
-      const context = contextManager.getContext();
-      const messages = contextManager.buildMessages(context, text);
-      const dr = await deepseekClient.chat(messages);
-      response = { text: dr.text, modelUsed: 'deepseek', tokensUsed: dr.tokensUsed };
+    try {
+      if (modelChoice === 'qwen-omni') {
+        // Qwen handles both multimodal and text-only
+        const context = contextManager.getContext();
+        const qr = await qwenClient.multimodalChat({
+          imageBase64: frameToSend, text,
+          contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
+        });
+        response = { text: qr.responseText, visualDescription: qr.visualDescription, modelUsed: 'qwen-omni', tokensUsed: qr.tokensUsed };
+        if (qr.visualDescription) frameDedup.cacheDescription(qr.visualDescription);
+      } else {
+        const context = contextManager.getContext();
+        const messages = contextManager.buildMessages(context, text);
+        const dr = await deepseekClient.chat(messages);
+        response = { text: dr.text, modelUsed: 'deepseek', tokensUsed: dr.tokensUsed };
+      }
+    } catch (err: any) {
+      console.error('[Conv] API error:', err.message);
+      response = { text: '抱歉，AI 服务暂时不可用：' + (err.message || '未知错误'), modelUsed: modelChoice, tokensUsed: 0 };
     }
 
     emitResponse(response);
