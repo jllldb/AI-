@@ -34,7 +34,7 @@ export class QwenClient {
     const response = await fetch(this.baseUrl + '/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + this.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen-omni-turbo', messages, max_tokens: 1024 }),
+      body: JSON.stringify({ model: 'qwen-vl-plus', messages, max_tokens: 1024 }),
     });
     if (!response.ok) throw new Error('Qwen API error: ' + response.status);
     const data = await response.json();
@@ -49,7 +49,7 @@ export class QwenClient {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + this.apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'qwen-omni-turbo',
+        model: 'qwen-vl-plus',
         messages: [{
           role: 'user',
           content: [
