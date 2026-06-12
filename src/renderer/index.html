@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 视觉对话助手</title>
+</head>
+<body>
+  <!-- Preload diagnostic (runs BEFORE React, visible even if app crashes) -->
+  <div id="preload-diag" style="position:fixed;top:0;left:0;right:0;z-index:9999;padding:6px 12px;font-size:13px;font-family:monospace;text-align:center;color:white;"></div>
+  <script>
+    (function() {
+      var el = document.getElementById('preload-diag');
+      function show(msg, bg) { el.textContent = msg; el.style.background = bg; }
+      show('⏳ 正在加载...', '#333');
+      var start = Date.now();
+      var check = setInterval(function() {
+        if (window.electronAPI) {
+          clearInterval(check);
+          show('✅ electronAPI 已连接 (' + (Date.now()-start) + 'ms) | 点击 🎤 开始对话', '#1a8a3f');
+          // Test IPC round-trip
+          window.electronAPI.getPreferences().then(function(p) {
+            show('✅ 连接就绪 | 千问key:' + (p.qwenApiKey ? '✅' : '❌') + ' DeepSeek:' + (p.deepseekApiKey ? '✅' : '❌') + ' | 模型: ' + (p.deepseekApiKey ? 'DeepSeek' : '千问VL'), '#1a8a3f');
+          }).catch(function() { show('⚠️ 已连接但IPC异常', '#c77'); });
+        }
+        if (Date.now() - start > 5000) {
+          clearInterval(check);
+          show('❌ electronAPI 未加载 — preload脚本可能失败', '#c22');
+        }
+      }, 200);
+    })();
+  </script>
+  <div id="root" style="margin-top:32px;"></div>
+  <script type="module" src="./main.tsx"></script>
+</body>
+</html>
