@@ -42,33 +42,55 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* API Keys */}
+          {/* API Keys + Model Selection */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">🔑 API 密钥</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">🔑 AI 模型配置</h3>
+
+            {/* Model Provider */}
+            <div className="mb-3">
+              <label className="text-xs text-gray-500">优先模型</label>
+              <select
+                value={prefs.modelProvider || 'qwen'}
+                onChange={e => update('modelProvider', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm mt-1"
+              >
+                <option value="qwen">千问 (Qwen VL) — 推荐，图文理解</option>
+                <option value="deepseek">DeepSeek — 纯文字，低成本</option>
+                <option value="auto">自动 — 有 DeepSeek key 时优先用</option>
+              </select>
+            </div>
+
             <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-500 flex items-center gap-1">
-                  千问 API Key {prefs.qwenApiKey ? '✅' : '❌'}
+              <div className="bg-blue-50 rounded-lg p-3">
+                <label className="text-xs text-blue-700 font-medium flex items-center gap-1">
+                  千问 API Key {prefs.qwenApiKey ? '✅ 已配置' : '❌ 未配置'}
                 </label>
                 <input
                   type="password"
                   value={prefs.qwenApiKey || ''}
                   onChange={e => update('qwenApiKey', e.target.value)}
-                  placeholder="sk-..."
+                  placeholder="sk-... 从 dashscope.aliyun.com 获取"
                   className="w-full px-3 py-2 border rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-[10px] text-blue-400 mt-1">
+                  模型: {prefs.qwenModel || 'qwen-vl-plus'} | <a href="https://dashscope.aliyun.com" className="underline" target="_blank">获取 Key</a>
+                </p>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 flex items-center gap-1">
-                  DeepSeek API Key {prefs.deepseekApiKey ? '✅' : '⬜ (可选)'}
+
+              <div className="bg-green-50 rounded-lg p-3">
+                <label className="text-xs text-green-700 font-medium flex items-center gap-1">
+                  DeepSeek API Key {prefs.deepseekApiKey ? '✅ 已配置' : '⬜ 可选'}
                 </label>
                 <input
                   type="password"
                   value={prefs.deepseekApiKey || ''}
                   onChange={e => update('deepseekApiKey', e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full px-3 py-2 border rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="sk-... 从 platform.deepseek.com 获取"
+                  className="w-full px-3 py-2 border rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
+                <p className="text-[10px] text-green-400 mt-1">
+                  模型: {prefs.deepseekModel || 'deepseek-chat'} | <a href="https://platform.deepseek.com" className="underline" target="_blank">获取 Key</a>
+                </p>
               </div>
             </div>
           </section>

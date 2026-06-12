@@ -23,11 +23,25 @@ export class ConversationManager {
   private hasDeepSeekKey = false;
   private speechStartTime = 0;
 
+  private modelProvider = 'qwen'; // 'qwen' | 'deepseek' | 'auto'
+
   init() {
     const prefs = preferenceStore.getAll();
     this.costSummary.dailyBudget = Number(prefs.dailyBudget) || 5;
     this.hasDeepSeekKey = !!(prefs.deepseekApiKey && prefs.deepseekApiKey.trim());
-    console.log('[Conv] Init — Qwen key:', !!prefs.qwenApiKey, 'DeepSeek key:', this.hasDeepSeekKey);
+    this.modelProvider = prefs.modelProvider || 'qwen';
+
+    // Configure model names
+    if (prefs.qwenModel) {
+      const { qwenClient } = require('../clients/qwen-client');
+      if (qwenClient) qwenClient.setModel(prefs.qwenModel);
+    }
+    if (prefs.deepseekModel) {
+      const { deepseekClient } = require('../clients/deepseek-client');
+      if (deepseekClient) deepseekClient.setModel(prefs.deepseekModel);
+    }
+
+    console.log('[Conv] Init — Provider:', this.modelProvider, 'Qwen key:', !!prefs.qwenApiKey, 'DeepSeek key:', this.hasDeepSeekKey);
 
     vadService.setCallbacks({
       onSpeechStart: () => {
@@ -70,7 +84,7 @@ export class ConversationManager {
       hasNewImage: !!frameToSend, hasSpeech: true, hasTextInput: false,
       isAccessibilityMode: this.isAccessibilityMode, isFollowUp: false,
     };
-    const modelChoice = modelRouter.route(input, this.hasDeepSeekKey);
+    const modelChoice = modelRouter.route(input, this.hasDeepSeekKey, this.modelProvider);
 
     // Show user speech as a message immediately
     const userContent = `🎤 语音输入 (${speechDuration}s)`;
@@ -135,7 +149,7 @@ export class ConversationManager {
       hasNewImage: !!frameToSend, hasSpeech: false, hasTextInput: true,
       isAccessibilityMode: false, isFollowUp: true,
     };
-    const modelChoice = modelRouter.route(input, this.hasDeepSeekKey);
+    const modelChoice = modelRouter.route(input, this.hasDeepSeekKey, this.modelProvider);
 
     let response: AIResponse;
     try {

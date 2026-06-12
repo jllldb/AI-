@@ -2,10 +2,12 @@ import { QwenResponse } from '../../shared/types';
 
 export class QwenClient {
   private apiKey: string;
+  private model = 'qwen-vl-plus';
   private baseUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
   constructor(apiKey: string) { this.apiKey = apiKey; }
   setApiKey(key: string) { this.apiKey = key; }
+  setModel(model: string) { this.model = model; }
 
   async multimodalChat(params: {
     imageBase64?: string;
@@ -34,9 +36,9 @@ export class QwenClient {
     const response = await fetch(this.baseUrl + '/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + this.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen-vl-plus', messages, max_tokens: 1024 }),
+      body: JSON.stringify({ model: this.model, messages, max_tokens: 1024 }),
     });
-    if (!response.ok) throw new Error('Qwen API error: ' + response.status);
+    if (!response.ok) throw new Error('Qwen API error: ' + response.status + ' ' + await response.text());
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content ?? '';
     const tokensUsed = data.usage?.total_tokens ?? 0;
@@ -49,7 +51,7 @@ export class QwenClient {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + this.apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'qwen-vl-plus',
+        model: this.model,
         messages: [{
           role: 'user',
           content: [

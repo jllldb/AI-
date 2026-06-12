@@ -5,15 +5,16 @@ export class ModelRouter {
    * Route to the best model given the input and available API keys.
    * Falls back to Qwen when DeepSeek key is not configured.
    */
-  route(input: ConversationInput, hasDeepSeekKey = false): ModelChoice {
-    // Always use Qwen for multimodal
+  route(input: ConversationInput, hasDeepSeekKey = false, modelProvider = 'qwen'): ModelChoice {
+    // Always use Qwen for multimodal (DeepSeek doesn't support images/audio)
     if (input.isAccessibilityMode) return 'qwen-omni';
     if (input.hasNewImage) return 'qwen-omni';
     if (input.hasSpeech) return 'qwen-omni';
 
-    // Text-only: prefer DeepSeek (cheaper) but fall back to Qwen
-    if (hasDeepSeekKey) return 'deepseek';
-    return 'qwen-omni'; // Fallback: Qwen can handle text too
+    // Text-only: follow user preference
+    if (modelProvider === 'deepseek' && hasDeepSeekKey) return 'deepseek';
+    if (modelProvider === 'auto' && hasDeepSeekKey) return 'deepseek';
+    return 'qwen-omni'; // default/fallback: Qwen handles text too
   }
 
   estimateTokens(input: ConversationInput): number {

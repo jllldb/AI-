@@ -4,3 +4,4 @@ release/
 *.db
 .env
 .superpowers/
+test-electron/
