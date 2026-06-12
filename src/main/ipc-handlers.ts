@@ -9,6 +9,7 @@ let stateSender: ((state: ConversationState) => void) | null = null;
 let transcriptSender: ((text: string) => void) | null = null;
 let responseSender: ((response: any) => void) | null = null;
 let costSender: ((cost: any) => void) | null = null;
+let audioLevelSender: ((level: number) => void) | null = null;
 
 // Lazy ref to avoid circular dependency with conversation-manager
 let _cm: any = null;
@@ -22,6 +23,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   transcriptSender = (t) => mainWindow.webContents.send(IPC_CHANNELS.TRANSCRIPT_UPDATE, t);
   responseSender = (r) => mainWindow.webContents.send(IPC_CHANNELS.RESPONSE_UPDATE, r);
   costSender = (c) => mainWindow.webContents.send(IPC_CHANNELS.COST_UPDATE, c);
+  audioLevelSender = (l) => mainWindow.webContents.send('audio:level', l);
 
   // ---- Camera/Mic Permission (CRITICAL for getUserMedia) ----
   session.defaultSession.setPermissionRequestHandler(
@@ -41,7 +43,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   });
 
   ipcMain.on('media:audio-chunk', (_e, audioData: number[]) => {
-    vadService.processChunk(new Float32Array(audioData));
+    const chunk = new Float32Array(audioData);
+    const { rmsDb } = vadService.processChunk(chunk);
+    // Send audio level to renderer (normalize -60..0 dB to 0..100)
+    const level = Math.max(0, Math.min(100, (rmsDb + 60) * 100 / 60));
+    if (audioLevelSender) audioLevelSender(Math.round(level));
   });
 
   // ---- Conversation ----
@@ -81,3 +87,4 @@ export function emitState(state: ConversationState) { stateSender?.(state); }
 export function emitTranscript(text: string) { transcriptSender?.(text); }
 export function emitResponse(response: any) { responseSender?.(response); }
 export function emitCost(cost: any) { costSender?.(cost); }
+export function emitAudioLevel(level: number) { audioLevelSender?.(level); }

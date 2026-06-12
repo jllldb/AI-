@@ -21,14 +21,17 @@ export class ConversationManager {
   };
   private lastFrameSentTime = 0;
 
+  private speechStartTime = 0;
+
   init() {
     const prefs = preferenceStore.getAll();
     this.costSummary.dailyBudget = Number(prefs.dailyBudget) || 5;
 
     vadService.setCallbacks({
       onSpeechStart: () => {
+        this.speechStartTime = Date.now();
         emitState('listening');
-        emitTranscript('...');
+        emitTranscript('🎤 正在听...');
       },
       onSpeechEnd: (segments) => this.handleSpeechEnd(segments),
     });
@@ -41,6 +44,8 @@ export class ConversationManager {
 
   private async handleSpeechEnd(segments: Float32Array[]) {
     emitState('processing');
+    const speechDuration = ((Date.now() - this.speechStartTime) / 1000).toFixed(1);
+
     const merged = vadService.mergeSegments(segments);
     const wavBuffer = vadService.float32ToWav(merged, 16000);
     const audioBase64 = wavBuffer.toString('base64');
@@ -65,6 +70,10 @@ export class ConversationManager {
     };
     const modelChoice = modelRouter.route(input);
 
+    // Show user speech as a message immediately
+    const userContent = `🎤 语音输入 (${speechDuration}s)`;
+    emitTranscript(userContent);
+
     try {
       let response: AIResponse;
       if (modelChoice === 'qwen-omni') {
@@ -73,6 +82,10 @@ export class ConversationManager {
           imageBase64: frameToSend, audioBase64,
           contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
         });
+        // Show transcription if available
+        const transcription = qr.transcription || userContent;
+        emitTranscript(transcription);
+
         response = {
           text: qr.responseText, visualDescription: qr.visualDescription,
           modelUsed: 'qwen-omni', tokensUsed: qr.tokensUsed,
@@ -90,18 +103,24 @@ export class ConversationManager {
 
       // TTS
       try {
-        const audioB64 = await ttsService.synthesizeToBase64(response.text);
-        emitResponse({ ...response, text: response.text });
+        await ttsService.synthesizeToBase64(response.text);
       } catch { /* TTS optional */ }
 
-      // Save history
-      contextManager.addTurn({ role: 'user', content: '[语音输入]', modelUsed: modelChoice, tokensUsed: 0 });
-      contextManager.addTurn({ role: 'assistant', content: response.text, visualDescription: response.visualDescription, modelUsed: modelChoice, tokensUsed: response.tokensUsed });
+      // Save history with actual transcription
+      contextManager.addTurn({
+        role: 'user', content: userContent, modelUsed: modelChoice, tokensUsed: 0,
+      });
+      contextManager.addTurn({
+        role: 'assistant', content: response.text,
+        visualDescription: response.visualDescription,
+        modelUsed: modelChoice, tokensUsed: response.tokensUsed,
+      });
 
       this.updateCost(response.tokensUsed, modelChoice);
       emitState('idle');
     } catch (error) {
       console.error('Conv error:', error);
+      emitTranscript('❌ 识别失败，请重试');
       emitState('idle');
     }
   }

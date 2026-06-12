@@ -5,17 +5,39 @@ export function useConversation() {
   const [state, setState] = useState<ConversationState>('idle');
   const [messages, setMessages] = useState<ConversationTurn[]>([]);
   const [transcript, setTranscript] = useState('');
+  const [audioLevel, setAudioLevel] = useState(0);
   const [costSummary, setCostSummary] = useState<CostSummary>({
     todayTokens: 0, todayCost: 0, dailyBudget: 5,
     callsSavedByVAD: 0, callsSavedByDedup: 0, callsSavedByCache: 0,
   });
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastTranscriptRef = useRef('');
 
   useEffect(() => {
     const api = (window as any).electronAPI;
     if (!api) return;
-    api.onStateChange((s: ConversationState) => setState(s));
-    api.onTranscript((t: string) => setTranscript(t));
+
+    api.onStateChange((s: ConversationState) => {
+      setState(s);
+      // When processing starts, the last transcript is what user said
+      if (s === 'processing' && lastTranscriptRef.current && lastTranscriptRef.current !== '🎤 正在听...') {
+        setMessages(prev => {
+          // Avoid duplicate user messages
+          const last = prev[prev.length - 1];
+          if (last?.role === 'user' && last.timestamp > Date.now() - 5000) return prev;
+          return [...prev, {
+            id: '', timestamp: Date.now(), role: 'user',
+            content: lastTranscriptRef.current, modelUsed: 'deepseek', tokensUsed: 0,
+          }];
+        });
+      }
+    });
+
+    api.onTranscript((t: string) => {
+      setTranscript(t);
+      lastTranscriptRef.current = t;
+    });
+
     api.onResponse((r: AIResponse) => {
       setMessages(prev => [...prev, {
         id: '', timestamp: Date.now(), role: 'assistant',
@@ -23,7 +45,9 @@ export function useConversation() {
         modelUsed: r.modelUsed, tokensUsed: r.tokensUsed,
       }]);
     });
+
     api.onCostUpdate((c: CostSummary) => setCostSummary(c));
+    api.onAudioLevel((l: number) => setAudioLevel(l));
   }, []);
 
   const sendTextMessage = useCallback(async (text: string, includeFrame: boolean) => {
@@ -43,5 +67,5 @@ export function useConversation() {
     setState('idle');
   }, []);
 
-  return { state, messages, transcript, costSummary, sendTextMessage, audioRef };
+  return { state, messages, transcript, audioLevel, costSummary, sendTextMessage, audioRef };
 }

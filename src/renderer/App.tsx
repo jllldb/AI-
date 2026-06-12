@@ -11,7 +11,7 @@ import { useConversation } from './hooks/useConversation';
 
 export default function App() {
   const { startCapture, stopCapture, videoRef, mediaError, isCapturing } = useMediaStream();
-  const { state, messages, costSummary, sendTextMessage } = useConversation();
+  const { state, messages, transcript, audioLevel, costSummary, sendTextMessage } = useConversation();
   const [isActive, setIsActive] = useState(false);
   const [isAccessibility, setIsAccessibility] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -33,10 +33,31 @@ export default function App() {
       <div className="p-4 bg-white border-b shadow-sm">
         <div className="max-w-3xl mx-auto">
           <CameraPreview videoRef={videoRef} isActive={displayActive} error={mediaError} />
-          <div className="flex items-center justify-between mt-3">
+          <div className="flex items-center justify-between mt-3 gap-4">
             <StatusIndicator state={state} />
-            <span className="text-xs text-gray-400">今日: ¥{costSummary.todayCost.toFixed(4)} · {costSummary.todayTokens} tokens</span>
+            {/* Audio level meter */}
+            <div className="flex items-center gap-2 flex-1">
+              <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-100 ${
+                    audioLevel > 20 ? 'bg-green-500' : audioLevel > 5 ? 'bg-yellow-500' : 'bg-gray-300'
+                  }`}
+                  style={{ width: `${audioLevel}%` }}
+                />
+              </div>
+              <span className="text-xs text-gray-400 w-8 text-right">{audioLevel}</span>
+            </div>
+            <span className="text-xs text-gray-400 whitespace-nowrap">¥{costSummary.todayCost.toFixed(4)}</span>
           </div>
+          {/* Live transcript preview */}
+          {transcript && state !== 'idle' && (
+            <div className="mt-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-100">
+              <p className="text-xs text-blue-500 font-medium mb-0.5">
+                {state === 'listening' ? '🎙️ 识别中...' : state === 'processing' ? '🤔 理解中...' : ''}
+              </p>
+              <p className="text-sm text-blue-800">{transcript}</p>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4">

@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     { ipcRenderer.on(IPC_CHANNELS.RESPONSE_UPDATE, (_e, r) => cb(r)); },
   onCostUpdate: (cb: (c: CostSummary) => void) =>
     { ipcRenderer.on(IPC_CHANNELS.COST_UPDATE, (_e, c) => cb(c)); },
+  onAudioLevel: (cb: (level: number) => void) =>
+    { ipcRenderer.on('audio:level', (_e, l) => cb(l)); },
 
   // History
   getHistory: (query?: string): Promise<ConversationTurn[]> =>
