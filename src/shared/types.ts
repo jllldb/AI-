@@ -1,5 +1,6 @@
-// ============ 模型 ============
-export type ModelChoice = 'qwen-omni' | 'deepseek';
+// ============ 模型供应商 ============
+export type ModelChoice = 'qwen' | 'deepseek' | 'openai' | 'gemini' | 'claude';
+export type ModelProvider = ModelChoice | 'auto';
 
 // ============ 对话状态机 ============
 export type ConversationState = 'idle' | 'listening' | 'processing' | 'speaking';

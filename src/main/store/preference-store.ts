@@ -2,13 +2,26 @@ import { getDatabase } from './database';
 
 // All API keys are empty by default — each user must configure their own
 const DEFAULTS: Record<string, string> = {
-  qwenApiKey: '',
-  deepseekApiKey: '',
-  modelProvider: 'qwen',       // 'qwen' | 'deepseek' | 'auto'
-  qwenModel: 'qwen-vl-plus',   // specific Qwen model
+  // API Keys — 五大供应商
+  qwenApiKey: '',          // 阿里云千问 (DashScope)
+  deepseekApiKey: '',      // DeepSeek
+  openaiApiKey: '',        // OpenAI (GPT-4o/GPT-4o-mini)
+  geminiApiKey: '',        // Google Gemini
+  claudeApiKey: '',        // Anthropic Claude
+
+  // Provider & Model selection
+  modelProvider: 'qwen',        // 'qwen' | 'deepseek' | 'openai' | 'gemini' | 'claude' | 'auto'
+  qwenModel: 'qwen-vl-plus',
   deepseekModel: 'deepseek-chat',
+  openaiModel: 'gpt-4o',
+  geminiModel: 'gemini-2.5-flash',
+  claudeModel: 'claude-sonnet-4-6',
+
+  // TTS
   ttsVoice: 'zh-CN-XiaoxiaoNeural',
   ttsRate: '1.0',
+
+  // Budget
   dailyBudget: '5',
   accessibilityInterval: '5',
 };

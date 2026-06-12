@@ -1,10 +1,13 @@
-import { AIResponse, ConversationInput, ModelChoice, CostSummary } from '../../shared/types';
+import { AIResponse, ConversationInput, ModelChoice, CostSummary, ModelProvider } from '../../shared/types';
 import { vadService } from './vad-service';
 import { frameDedup } from './frame-dedup';
 import { contextManager } from './context-manager';
 import { modelRouter } from '../router/model-router';
 import { qwenClient } from '../clients/qwen-client';
 import { deepseekClient } from '../clients/deepseek-client';
+import { openaiClient } from '../clients/openai-client';
+import { geminiClient } from '../clients/gemini-client';
+import { claudeClient } from '../clients/claude-client';
 import { ttsService } from './tts-service';
 import { preferenceStore } from '../store/preference-store';
 import { emitState, emitTranscript, emitResponse, emitCost } from '../ipc-handlers';
@@ -92,7 +95,7 @@ export class ConversationManager {
 
     try {
       let response: AIResponse;
-      if (modelChoice === 'qwen-omni') {
+      if (modelChoice === 'qwen') {
         const context = contextManager.getContext();
         const qr = await qwenClient.multimodalChat({
           imageBase64: frameToSend, audioBase64,
@@ -104,7 +107,7 @@ export class ConversationManager {
 
         response = {
           text: qr.responseText, visualDescription: qr.visualDescription,
-          modelUsed: 'qwen-omni', tokensUsed: qr.tokensUsed,
+          modelUsed: 'qwen', tokensUsed: qr.tokensUsed,
         };
         if (qr.visualDescription) frameDedup.cacheDescription(qr.visualDescription);
       } else {
@@ -153,14 +156,14 @@ export class ConversationManager {
 
     let response: AIResponse;
     try {
-      if (modelChoice === 'qwen-omni') {
+      if (modelChoice === 'qwen') {
         // Qwen handles both multimodal and text-only
         const context = contextManager.getContext();
         const qr = await qwenClient.multimodalChat({
           imageBase64: frameToSend, text,
           contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
         });
-        response = { text: qr.responseText, visualDescription: qr.visualDescription, modelUsed: 'qwen-omni', tokensUsed: qr.tokensUsed };
+        response = { text: qr.responseText, visualDescription: qr.visualDescription, modelUsed: 'qwen', tokensUsed: qr.tokensUsed };
         if (qr.visualDescription) frameDedup.cacheDescription(qr.visualDescription);
       } else {
         const context = contextManager.getContext();
@@ -204,18 +207,18 @@ export class ConversationManager {
       const { description, tokensUsed } = await qwenClient.describeImage(this.lastFrameBase64);
       frameDedup.cacheDescription(description);
       this.lastFrameSentTime = Date.now();
-      const resp: AIResponse = { text: description, visualDescription: description, modelUsed: 'qwen-omni', tokensUsed };
+      const resp: AIResponse = { text: description, visualDescription: description, modelUsed: 'qwen', tokensUsed };
       emitResponse(resp);
       emitState('speaking');
       try { await ttsService.synthesizeToBase64(description); } catch {}
-      contextManager.addTurn({ role: 'system', content: '[场景] ' + description, visualDescription: description, modelUsed: 'qwen-omni', tokensUsed });
-      this.updateCost(tokensUsed, 'qwen-omni');
+      contextManager.addTurn({ role: 'system', content: '[场景] ' + description, visualDescription: description, modelUsed: 'qwen', tokensUsed });
+      this.updateCost(tokensUsed, 'qwen');
       emitState('idle');
     } catch (e) { console.error('accessibility tick:', e); }
   }
 
   private updateCost(tokens: number, model: ModelChoice) {
-    const price = model === 'qwen-omni' ? COST.QWEN_PRICE_PER_1K_TOKENS : COST.DEEPSEEK_PRICE_PER_1K_TOKENS;
+    const price = model === 'qwen' ? COST.QWEN_PRICE_PER_1K_TOKENS : COST.DEEPSEEK_PRICE_PER_1K_TOKENS;
     this.costSummary.todayTokens += tokens;
     this.costSummary.todayCost += (tokens / 1000) * price;
     emitCost(this.costSummary);

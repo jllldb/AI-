@@ -4,6 +4,9 @@ import { registerIpcHandlers } from './ipc-handlers';
 import { preferenceStore } from './store/preference-store';
 import { initQwenClient } from './clients/qwen-client';
 import { initDeepSeekClient } from './clients/deepseek-client';
+import { initOpenAIClient } from './clients/openai-client';
+import { initGeminiClient } from './clients/gemini-client';
+import { initClaudeClient } from './clients/claude-client';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -35,6 +38,9 @@ function createWindow() {
   const prefs = preferenceStore.getAll();
   initQwenClient(prefs.qwenApiKey || '');
   initDeepSeekClient(prefs.deepseekApiKey || '');
+  initOpenAIClient(prefs.openaiApiKey || '');
+  initGeminiClient(prefs.geminiApiKey || '');
+  initClaudeClient(prefs.claudeApiKey || '');
   registerIpcHandlers(mainWindow);
 
   // Start conversation manager
