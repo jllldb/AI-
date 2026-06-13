@@ -226,8 +226,31 @@ export class ConversationManager {
 
   getCostSummary(): CostSummary { return { ...this.costSummary }; }
 
-  /** Unified AI call — routes to the correct client based on model choice */
+  /** Unified AI call — routes to the correct client, auto-falls back on failure */
   private async callAI(model: ModelChoice, params: {
+    text?: string;
+    imageBase64?: string;
+    contextMessages?: { role: string; content: string }[];
+  }): Promise<{ text: string; tokensUsed: number }> {
+    // Try preferred model, fall back to any available provider
+    const fallbacks = [...this.availableProviders].filter(p => p !== model);
+    const tryOrder = [model, ...fallbacks];
+
+    let lastError = '';
+    for (const m of tryOrder.slice(0, 3)) { // Try at most 3 providers
+      try {
+        console.log('[Conv] Trying model:', m);
+        const result = await this._callOne(m, params);
+        if (result) return result;
+      } catch (e: any) {
+        lastError = e.message || String(e);
+        console.log('[Conv] Model', m, 'failed:', lastError);
+      }
+    }
+    throw new Error('All models failed. Last error: ' + lastError);
+  }
+
+  private async _callOne(model: ModelChoice, params: {
     text?: string;
     imageBase64?: string;
     contextMessages?: { role: string; content: string }[];
