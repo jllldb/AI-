@@ -36,7 +36,7 @@ export class QwenClient {
     const response = await fetch(this.baseUrl + '/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + this.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: this.model, messages, max_tokens: 1024 }),
+      body: JSON.stringify({ model: this.model, messages, max_tokens: 512, temperature: 0.8 }),
     });
     if (!response.ok) throw new Error('Qwen API error: ' + response.status + ' ' + await response.text());
     const data = await response.json();
@@ -59,7 +59,7 @@ export class QwenClient {
             { type: 'text', text: prompt ?? defaultPrompt },
           ],
         }],
-        max_tokens: 256,
+        max_tokens: 256, temperature: 0.9
       }),
     });
     if (!response.ok) throw new Error('Qwen vision error: ' + response.status);

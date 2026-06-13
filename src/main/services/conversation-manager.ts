@@ -87,51 +87,36 @@ export class ConversationManager {
     emitTranscript(userContent);
 
     try {
-      let response: AIResponse;
-      // qwen-vl-plus does NOT support raw audio — send text prompt + image instead
-      const speechPrompt = '用户正在对你说话（语音输入）。请根据摄像头画面内容，用中文自然地回应用户。如果画面中有值得注意的内容，可以主动提及。';
+      // Vary prompts to avoid repetitive responses
+      const prompts = [
+        '用户正在和你说话。简短自然地回应（2-3句话），不要啰嗦。',
+        '用户想和你聊天。用轻松随意的语气回应，不要长篇大论。',
+        '用户向你提问。给出简洁有用的回答。',
+        '用户需要帮助。一句话回应，然后问是否需要更多帮助。',
+      ];
+      const speechPrompt = prompts[Math.floor(Math.random() * prompts.length)];
 
-      if (modelChoice === 'qwen') {
-        const context = contextManager.getContext();
-        const qr = await qwenClient.multimodalChat({
-          imageBase64: frameToSend,
-          text: frameToSend ? speechPrompt : '用户正在对你说话。请用中文自然地回应。',
-          contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
-        });
-        emitTranscript(userContent);
+      const context = contextManager.getContext();
+      const result = await this.callAI(modelChoice, {
+        text: speechPrompt,
+        imageBase64: frameToSend,
+        contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
+      });
 
-        response = {
-          text: qr.responseText, visualDescription: qr.visualDescription,
-          modelUsed: 'qwen', tokensUsed: qr.tokensUsed,
-        };
-        if (qr.visualDescription) frameDedup.cacheDescription(qr.visualDescription);
-      } else {
-        const context = contextManager.getContext();
-        const messages = contextManager.buildMessages(context, '');
-        const dr = await deepseekClient.chat(messages);
-        response = { text: dr.text, modelUsed: 'deepseek', tokensUsed: dr.tokensUsed };
-      }
-
+      const response: AIResponse = {
+        text: result.text, modelUsed: modelChoice, tokensUsed: result.tokensUsed,
+      };
+      emitTranscript(userContent);
       emitResponse(response);
       emitState('speaking');
 
-      // TTS
-      try {
-        await ttsService.synthesizeToBase64(response.text);
-      } catch { /* TTS optional */ }
+      try { await ttsService.synthesizeToBase64(response.text); } catch {}
 
-      // Save history with actual transcription
-      contextManager.addTurn({
-        role: 'user', content: userContent, modelUsed: modelChoice, tokensUsed: 0,
-      });
-      contextManager.addTurn({
-        role: 'assistant', content: response.text,
-        visualDescription: response.visualDescription,
-        modelUsed: modelChoice, tokensUsed: response.tokensUsed,
-      });
+      contextManager.addTurn({ role: 'user', content: userContent, modelUsed: modelChoice, tokensUsed: 0 });
+      contextManager.addTurn({ role: 'assistant', content: response.text, modelUsed: modelChoice, tokensUsed: result.tokensUsed });
 
-      this.updateCost(response.tokensUsed, modelChoice);
-      this.lastResponseTime = Date.now();  // Start cooldown
+      this.updateCost(result.tokensUsed, modelChoice);
+      this.lastResponseTime = Date.now();
       emitState('idle');
     } catch (error: any) {
       console.error('[Conv] Speech error:', error.message);
