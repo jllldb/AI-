@@ -1,5 +1,5 @@
 // ============ 模型供应商 ============
-export type ModelChoice = 'qwen' | 'deepseek' | 'openai' | 'gemini' | 'claude';
+export type ModelChoice = 'qwen' | 'deepseek' | 'openai' | 'gemini' | 'claude' | 'ollama';
 export type ModelProvider = ModelChoice | 'auto';
 
 // ============ 对话状态机 ============

@@ -8,9 +8,10 @@ export const MEDIA = {
 } as const;
 
 export const VAD = {
-  SILENCE_THRESHOLD_DBFS: -40,
-  SILENCE_TIMEOUT_MS: 1500,
-  MIN_SPEECH_DURATION_MS: 300,
+  SILENCE_THRESHOLD_DBFS: -35,      // 更严格 (-40→-35)，减少环境噪音误触发
+  SILENCE_TIMEOUT_MS: 1200,          // 1.2s 静音认为说完
+  MIN_SPEECH_DURATION_MS: 800,       // 至少持续 0.8s 才算有效语音（防咳嗽/杂音）
+  MIN_SPEECH_CHUNKS: 10,             // 至少连续 10 个非静音块
 } as const;
 
 export const DEDUP = {

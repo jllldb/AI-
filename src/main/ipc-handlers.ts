@@ -70,15 +70,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(IPC_CHANNELS.PREFERENCES_GET, async () => preferenceStore.getAll());
   ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET, async (_e, prefs: Record<string, string>) => {
     for (const [k, v] of Object.entries(prefs)) preferenceStore.set(k, v);
-    // Reload API keys when changed
-    if (prefs.qwenApiKey) {
-      const { initQwenClient } = require('./clients/qwen-client');
-      initQwenClient(prefs.qwenApiKey);
-    }
-    if (prefs.deepseekApiKey) {
-      const { initDeepSeekClient } = require('./clients/deepseek-client');
-      initDeepSeekClient(prefs.deepseekApiKey);
-    }
+    // Reload ALL clients and conversation manager config
+    const { qwenClient, initQwenClient } = require('./clients/qwen-client');
+    const { deepseekClient, initDeepSeekClient } = require('./clients/deepseek-client');
+    const { openaiClient, initOpenAIClient } = require('./clients/openai-client');
+    const { geminiClient, initGeminiClient } = require('./clients/gemini-client');
+    const { claudeClient, initClaudeClient } = require('./clients/claude-client');
+    initQwenClient(prefs.qwenApiKey || '');
+    initDeepSeekClient(prefs.deepseekApiKey || '');
+    initOpenAIClient(prefs.openaiApiKey || '');
+    initGeminiClient(prefs.geminiApiKey || '');
+    initClaudeClient(prefs.claudeApiKey || '');
+    // Notify conversation manager to reload routing
+    getCM().reloadConfig();
     return true;
   });
 }

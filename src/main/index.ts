@@ -7,6 +7,7 @@ import { initDeepSeekClient } from './clients/deepseek-client';
 import { initOpenAIClient } from './clients/openai-client';
 import { initGeminiClient } from './clients/gemini-client';
 import { initClaudeClient } from './clients/claude-client';
+import { initOllamaClient } from './clients/ollama-client';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -41,6 +42,7 @@ function createWindow() {
   initOpenAIClient(prefs.openaiApiKey || '');
   initGeminiClient(prefs.geminiApiKey || '');
   initClaudeClient(prefs.claudeApiKey || '');
+  initOllamaClient();
   registerIpcHandlers(mainWindow);
 
   // Start conversation manager

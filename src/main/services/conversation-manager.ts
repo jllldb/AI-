@@ -8,6 +8,7 @@ import { deepseekClient } from '../clients/deepseek-client';
 import { openaiClient } from '../clients/openai-client';
 import { geminiClient } from '../clients/gemini-client';
 import { claudeClient } from '../clients/claude-client';
+import { ollamaClient } from '../clients/ollama-client';
 import { ttsService } from './tts-service';
 import { preferenceStore } from '../store/preference-store';
 import { emitState, emitTranscript, emitResponse, emitCost } from '../ipc-handlers';
@@ -23,29 +24,14 @@ export class ConversationManager {
     callsSavedByVAD: 0, callsSavedByDedup: 0, callsSavedByCache: 0,
   };
   private lastFrameSentTime = 0;
-  private hasDeepSeekKey = false;
   private speechStartTime = 0;
-
-  private modelProvider = 'qwen'; // 'qwen' | 'deepseek' | 'auto'
+  private lastResponseTime = 0;
+  private responseCooldownMs = 3000;
+  private availableProviders: Set<ModelChoice> = new Set();
+  private modelProvider: ModelProvider = 'auto';
 
   init() {
-    const prefs = preferenceStore.getAll();
-    this.costSummary.dailyBudget = Number(prefs.dailyBudget) || 5;
-    this.hasDeepSeekKey = !!(prefs.deepseekApiKey && prefs.deepseekApiKey.trim());
-    this.modelProvider = prefs.modelProvider || 'qwen';
-
-    // Configure model names
-    if (prefs.qwenModel) {
-      const { qwenClient } = require('../clients/qwen-client');
-      if (qwenClient) qwenClient.setModel(prefs.qwenModel);
-    }
-    if (prefs.deepseekModel) {
-      const { deepseekClient } = require('../clients/deepseek-client');
-      if (deepseekClient) deepseekClient.setModel(prefs.deepseekModel);
-    }
-
-    console.log('[Conv] Init — Provider:', this.modelProvider, 'Qwen key:', !!prefs.qwenApiKey, 'DeepSeek key:', this.hasDeepSeekKey);
-
+    this.reloadConfig();
     vadService.setCallbacks({
       onSpeechStart: () => {
         this.speechStartTime = Date.now();
@@ -62,8 +48,15 @@ export class ConversationManager {
   }
 
   private async handleSpeechEnd(segments: Float32Array[]) {
+    // Cooldown gate: prevent rapid-fire responses
+    const now = Date.now();
+    if (now - this.lastResponseTime < this.responseCooldownMs) {
+      console.log('[Conv] Cooldown active, ignoring speech');
+      return;
+    }
+
     emitState('processing');
-    const speechDuration = ((Date.now() - this.speechStartTime) / 1000).toFixed(1);
+    const speechDuration = ((now - this.speechStartTime) / 1000).toFixed(1);
 
     const merged = vadService.mergeSegments(segments);
     const wavBuffer = vadService.float32ToWav(merged, 16000);
@@ -87,7 +80,7 @@ export class ConversationManager {
       hasNewImage: !!frameToSend, hasSpeech: true, hasTextInput: false,
       isAccessibilityMode: this.isAccessibilityMode, isFollowUp: false,
     };
-    const modelChoice = modelRouter.route(input, this.hasDeepSeekKey, this.modelProvider);
+    const modelChoice = modelRouter.route(input, this.availableProviders, this.modelProvider);
 
     // Show user speech as a message immediately
     const userContent = `🎤 语音输入 (${speechDuration}s)`;
@@ -95,15 +88,17 @@ export class ConversationManager {
 
     try {
       let response: AIResponse;
+      // qwen-vl-plus does NOT support raw audio — send text prompt + image instead
+      const speechPrompt = '用户正在对你说话（语音输入）。请根据摄像头画面内容，用中文自然地回应用户。如果画面中有值得注意的内容，可以主动提及。';
+
       if (modelChoice === 'qwen') {
         const context = contextManager.getContext();
         const qr = await qwenClient.multimodalChat({
-          imageBase64: frameToSend, audioBase64,
+          imageBase64: frameToSend,
+          text: frameToSend ? speechPrompt : '用户正在对你说话。请用中文自然地回应。',
           contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
         });
-        // Show transcription if available
-        const transcription = qr.transcription || userContent;
-        emitTranscript(transcription);
+        emitTranscript(userContent);
 
         response = {
           text: qr.responseText, visualDescription: qr.visualDescription,
@@ -136,10 +131,12 @@ export class ConversationManager {
       });
 
       this.updateCost(response.tokensUsed, modelChoice);
+      this.lastResponseTime = Date.now();  // Start cooldown
       emitState('idle');
-    } catch (error) {
-      console.error('Conv error:', error);
-      emitTranscript('❌ 识别失败，请重试');
+    } catch (error: any) {
+      console.error('[Conv] Speech error:', error.message);
+      this.lastResponseTime = Date.now();  // Cooldown even on error — prevent loop!
+      emitTranscript('❌ 识别失败: ' + (error.message || '未知错误'));
       emitState('idle');
     }
   }
@@ -152,7 +149,7 @@ export class ConversationManager {
       hasNewImage: !!frameToSend, hasSpeech: false, hasTextInput: true,
       isAccessibilityMode: false, isFollowUp: true,
     };
-    const modelChoice = modelRouter.route(input, this.hasDeepSeekKey, this.modelProvider);
+    const modelChoice = modelRouter.route(input, this.availableProviders, this.modelProvider);
 
     let response: AIResponse;
     try {
@@ -200,6 +197,8 @@ export class ConversationManager {
 
   private async accessibilityTick() {
     if (!this.lastFrameBase64 || !this.lastFrameDhash) return;
+    // Cooldown gate
+    if (Date.now() - this.lastResponseTime < this.responseCooldownMs) return;
     const isSig = frameDedup.isSignificantChange(this.lastFrameDhash);
     const forceRefresh = (Date.now() - this.lastFrameSentTime) > 60000;
     if (!isSig && !forceRefresh) return;
@@ -213,6 +212,7 @@ export class ConversationManager {
       try { await ttsService.synthesizeToBase64(description); } catch {}
       contextManager.addTurn({ role: 'system', content: '[场景] ' + description, visualDescription: description, modelUsed: 'qwen', tokensUsed });
       this.updateCost(tokensUsed, 'qwen');
+      this.lastResponseTime = Date.now();  // Cooldown after accessibility too
       emitState('idle');
     } catch (e) { console.error('accessibility tick:', e); }
   }
@@ -225,6 +225,69 @@ export class ConversationManager {
   }
 
   getCostSummary(): CostSummary { return { ...this.costSummary }; }
+
+  /** Unified AI call — routes to the correct client based on model choice */
+  private async callAI(model: ModelChoice, params: {
+    text?: string;
+    imageBase64?: string;
+    contextMessages?: { role: string; content: string }[];
+  }): Promise<{ text: string; tokensUsed: number }> {
+    const msgs = params.contextMessages || [];
+    switch (model) {
+      case 'qwen':
+        return qwenClient.multimodalChat({ imageBase64: params.imageBase64, text: params.text, contextMessages: msgs })
+          .then(r => ({ text: r.responseText, tokensUsed: r.tokensUsed }));
+      case 'deepseek':
+        return deepseekClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+      case 'openai':
+        return params.imageBase64
+          ? openaiClient.chatWithVision({ imageBase64: params.imageBase64, text: params.text, contextMessages: msgs })
+          : openaiClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+      case 'gemini':
+        return params.imageBase64
+          ? geminiClient.chatWithVision({ imageBase64: params.imageBase64, text: params.text })
+          : geminiClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+      case 'claude':
+        return params.imageBase64
+          ? claudeClient.chatWithVision({ imageBase64: params.imageBase64, text: params.text, contextMessages: msgs })
+          : claudeClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+      case 'ollama':
+        return params.imageBase64
+          ? ollamaClient.chatWithVision({ imageBase64: params.imageBase64, text: params.text })
+          : ollamaClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+      default:
+        throw new Error('Unknown model: ' + model);
+    }
+  }
+
+  /** Reload API keys and model config from preferences (called when settings change) */
+  reloadConfig() {
+    const prefs = preferenceStore.getAll();
+    this.costSummary.dailyBudget = Number(prefs.dailyBudget) || 5;
+    this.modelProvider = (prefs.modelProvider as ModelProvider) || 'auto';
+
+    this.availableProviders.clear();
+    if (prefs.qwenApiKey?.trim()) this.availableProviders.add('qwen');
+    if (prefs.deepseekApiKey?.trim()) this.availableProviders.add('deepseek');
+    if (prefs.openaiApiKey?.trim()) this.availableProviders.add('openai');
+    if (prefs.geminiApiKey?.trim()) this.availableProviders.add('gemini');
+    if (prefs.claudeApiKey?.trim()) this.availableProviders.add('claude');
+
+    // Reload API keys into clients
+    qwenClient?.setApiKey(prefs.qwenApiKey || '');
+    deepseekClient?.setApiKey(prefs.deepseekApiKey || '');
+    openaiClient?.setApiKey(prefs.openaiApiKey || '');
+    geminiClient?.setApiKey(prefs.geminiApiKey || '');
+    claudeClient?.setApiKey(prefs.claudeApiKey || '');
+
+    // Ollama is local — always try to add it (no API key needed)
+    ollamaClient?.isAvailable().then(ok => {
+      if (ok) this.availableProviders.add('ollama');
+    }).catch(() => {});
+
+    console.log('[Conv] Config reloaded — Provider:', this.modelProvider,
+      'Available:', [...this.availableProviders].join(','));
+  }
 }
 
 export const conversationManager = new ConversationManager();

@@ -1,3 +1,5 @@
+import { VAD } from '../../shared/constants';
+
 export interface VADCallbacks {
   onSpeechStart: () => void;
   onSpeechEnd: (audioSegments: Float32Array[]) => void;
@@ -9,15 +11,22 @@ export class VADService {
   private silenceStartTime = 0;
   private speechSegments: Float32Array[] = [];
   private speechStartedAt = 0;
+  private speechChunkCount = 0;
 
   setCallbacks(cb: VADCallbacks) { this.callbacks = cb; }
 
   processChunk(chunk: Float32Array): { isSilence: boolean; rmsDb: number } {
     const rmsDb = this.calculateRMSDb(chunk);
-    const isSilence = rmsDb < -40; // -40 dBFS
+    const isSilence = rmsDb < VAD.SILENCE_THRESHOLD_DBFS;
     const now = Date.now();
 
-    if (!this.isSpeaking && !isSilence) {
+    if (!isSilence) {
+      this.speechChunkCount++;
+    } else {
+      this.speechChunkCount = 0;
+    }
+
+    if (!this.isSpeaking && this.speechChunkCount >= VAD.MIN_SPEECH_CHUNKS) {
       this.isSpeaking = true;
       this.speechSegments = [chunk];
       this.speechStartedAt = now;
@@ -30,14 +39,16 @@ export class VADService {
       this.speechSegments.push(chunk);
       const silenceDuration = now - this.silenceStartTime;
       const speechDuration = now - this.speechStartedAt;
-      if (silenceDuration >= 1500 && speechDuration >= 300) {
+      if (silenceDuration >= VAD.SILENCE_TIMEOUT_MS && speechDuration >= VAD.MIN_SPEECH_DURATION_MS) {
         this.isSpeaking = false;
         this.silenceStartTime = 0;
+        this.speechChunkCount = 0;
         const segs = [...this.speechSegments];
         this.speechSegments = [];
         this.callbacks?.onSpeechEnd(segs);
       }
     }
+
     return { isSilence, rmsDb };
   }
 

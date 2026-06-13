@@ -60,7 +60,7 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
     await (window as any).electronAPI?.setPreferences(prefs);
     setDirty(false);
     setSaved(true);
-    window.location.reload();
+    setTimeout(() => onClose(), 500); // Close panel after brief feedback
   };
 
   const hasKey = (field: string) => !!(prefs[field] && prefs[field].trim());

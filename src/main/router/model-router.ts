@@ -1,20 +1,25 @@
-import { ConversationInput, ModelChoice } from '../../shared/types';
+import { ConversationInput, ModelChoice, ModelProvider } from '../../shared/types';
+
+// Priority order for auto-selection (multimodal-capable first)
+const AUTO_PRIORITY: ModelChoice[] = ['ollama', 'qwen', 'openai', 'gemini', 'claude', 'deepseek'];
 
 export class ModelRouter {
-  /**
-   * Route to the best model given the input and available API keys.
-   * Falls back to Qwen when DeepSeek key is not configured.
-   */
-  route(input: ConversationInput, hasDeepSeekKey = false, modelProvider = 'qwen'): ModelChoice {
-    // Always use Qwen for multimodal (DeepSeek doesn't support images/audio)
-    if (input.isAccessibilityMode) return 'qwen';
-    if (input.hasNewImage) return 'qwen';
-    if (input.hasSpeech) return 'qwen';
+  route(
+    input: ConversationInput,
+    availableProviders: Set<ModelChoice>,
+    preferredProvider: ModelProvider = 'auto'
+  ): ModelChoice {
+    // If user picked a specific provider and it's available, use it
+    if (preferredProvider !== 'auto' && availableProviders.has(preferredProvider as ModelChoice)) {
+      return preferredProvider as ModelChoice;
+    }
 
-    // Text-only: follow user preference
-    if (modelProvider === 'deepseek' && hasDeepSeekKey) return 'deepseek';
-    if (modelProvider === 'auto' && hasDeepSeekKey) return 'deepseek';
-    return 'qwen'; // default/fallback: Qwen handles text too
+    // Auto-select: first available provider from priority list
+    for (const p of AUTO_PRIORITY) {
+      if (availableProviders.has(p)) return p;
+    }
+
+    return 'qwen'; // last resort (will likely fail)
   }
 
   estimateTokens(input: ConversationInput): number {
