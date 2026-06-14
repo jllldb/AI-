@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CameraPreview } from './components/CameraPreview';
 import { StatusIndicator } from './components/StatusIndicator';
 import { ChatBubble } from './components/ChatBubble';
@@ -8,76 +8,140 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { useMediaStream } from './hooks/useMediaStream';
 import { useConversation } from './hooks/useConversation';
+import { useSpeechRecognition } from './hooks/useSpeechRecognition';
+
+type AspectRatio = '16:9' | '4:3' | '1:1';
+type ConvMode = 'continuous' | 'ptt';
 
 export default function App() {
   const { startCapture, stopCapture, videoRef, mediaError, isCapturing, diag } = useMediaStream();
-  const { state, messages, transcript, audioLevel, costSummary, sendTextMessage } = useConversation();
-  const [isActive, setIsActive] = useState(false);
+  const { state, messages, audioLevel, costSummary, sendTextMessage } = useConversation();
+  const { start: startSpeech, stop: stopSpeech, isRecording, interimText } = useSpeechRecognition();
+
+  const [cameraOn, setCameraOn] = useState(false);
+  const [convMode, setConvMode] = useState<ConvMode>('ptt');
+  const [ratio, setRatio] = useState<AspectRatio>('16:9');
   const [isAccessibility, setIsAccessibility] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [modelName, setModelName] = useState('...');
+  const [continuousStatus, setContinuousStatus] = useState('');
 
-  // Detect which model is active
   useEffect(() => {
     (window as any).electronAPI?.getPreferences().then((p: any) => {
       setModelName(p?.deepseekApiKey ? 'DeepSeek' : '千问 Qwen VL');
     }).catch(() => setModelName('未知'));
+    const t = setTimeout(() => { startCapture(); setCameraOn(true); }, 800);
+    return () => clearTimeout(t);
   }, []);
 
-  const toggleMic = async () => {
-    if (isActive) { stopCapture(); setIsActive(false); }
-    else { await startCapture(); setIsActive(true); }
+  const displayActive = cameraOn && isCapturing && !mediaError;
+
+  // Mode toggle
+  const toggleMode = () => {
+    const next = convMode === 'continuous' ? 'ptt' : 'continuous';
+    setConvMode(next);
+    (window as any).electronAPI?.setConvMode(next);
   };
+
+  // PTT recording
+  const startRecording = useCallback(async () => {
+    if (!cameraOn) { await startCapture(); setCameraOn(true); }
+    startSpeech();
+  }, [cameraOn, startCapture, startSpeech]);
+
+  const stopRecording = useCallback(async () => {
+    const text = await stopSpeech();
+    if (text?.trim()) await sendTextMessage(text.trim(), true);
+  }, [stopSpeech, sendTextMessage]);
+
+  const continuousRef = useRef(false);
+
+  // Continuous mode: real-time Web Speech API → auto-message on each sentence
+  const startContinuous = useCallback(async () => {
+    if (!cameraOn) { await startCapture(); setCameraOn(true); }
+    (window as any).electronAPI?.setConvMode('continuous');
+    continuousRef.current = true;
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.lang = 'zh-CN';
+      rec.interimResults = false;
+      rec.continuous = true;
+      rec.onresult = (event: any) => {
+        if (!continuousRef.current) return;
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            const text = event.results[i][0].transcript.trim();
+            if (text) sendTextMessage(text, true);
+          }
+        }
+      };
+      rec.onerror = () => {};
+      rec.onend = () => { if (continuousRef.current) rec.start(); };
+      rec.start();
+      setContinuousStatus('🔊 连续对话中...（说话自动发送）');
+    } else {
+      setContinuousStatus('⚠️ 浏览器不支持语音识别');
+    }
+  }, [cameraOn, startCapture, sendTextMessage]);
+
+  const stopContinuous = useCallback(() => {
+    continuousRef.current = false;
+    setContinuousStatus('');
+  }, []);
+
   const toggleAccessibility = () => {
     const next = !isAccessibility; setIsAccessibility(next);
     (window as any).electronAPI?.toggleAccessibilityMode(next);
   };
 
-  const displayActive = isActive && isCapturing && !mediaError;
-
-  // Wrapper for sendTextMessage with error feedback
   const handleSend = async (text: string, includeFrame: boolean) => {
-    if (!(window as any).electronAPI) {
-      // Show error directly if API not available
-      return;
-    }
     await sendTextMessage(text, includeFrame);
   };
 
+  const ratioClass = ratio === '4:3' ? 'aspect-[4/3]' : ratio === '1:1' ? 'aspect-square' : 'aspect-video';
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
-      {/* Header: Camera preview + status */}
+      {/* Header */}
       <div className="p-3 bg-white border-b shadow-sm">
         <div className="max-w-3xl mx-auto">
-          <CameraPreview videoRef={videoRef} isActive={displayActive} error={mediaError} />
+          <div className={ratioClass}>
+            <CameraPreview videoRef={videoRef} isActive={displayActive} error={mediaError} />
+          </div>
 
-          {/* Status row */}
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <StatusIndicator state={state} />
-            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium whitespace-nowrap">🤖 {modelName}</span>
-
-            {/* Audio level: compact bar, only when capturing */}
-            {isCapturing && (
-              <div className="flex items-center gap-1 flex-1 min-w-[60px]">
-                <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden max-w-[120px]">
-                  <div className={`h-full rounded-full transition-all duration-100 ${
-                    audioLevel > 20 ? 'bg-green-500' : audioLevel > 5 ? 'bg-yellow-400' : 'bg-gray-300'
-                  }`} style={{ width: `${audioLevel}%` }} />
-                </div>
-                <span className="text-[10px] text-gray-400 w-6">{audioLevel}</span>
-              </div>
-            )}
-
-            <span className="text-[10px] text-gray-400 ml-auto">
-              ¥{costSummary.todayCost.toFixed(4)} | {costSummary.todayTokens}t
+          {/* Status row: minimal */}
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
+            <StatusIndicator state={state} isRecording={isRecording} />
+            {/* Model badge */}
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">{modelName}</span>
+            {/* Mode badge */}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium cursor-pointer ${convMode === 'continuous' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'}`}
+              onClick={toggleMode} title="点击切换对话模式">
+              {convMode === 'continuous' ? '🔄 连续' : '📤 按键'}
+            </span>
+            {/* Video ratio */}
+            <div className="ml-auto flex gap-0.5">
+              {(['16:9','4:3','1:1'] as AspectRatio[]).map(r => (
+                <button key={r} onClick={() => setRatio(r)}
+                  className={`text-[10px] px-1 py-0.5 rounded ${ratio === r ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                  {r}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-gray-400">
+              ¥{costSummary.todayCost.toFixed(3)}
             </span>
           </div>
 
-          {/* Transcript — only during conversation */}
-          {transcript && state !== 'idle' && (
-            <div className="mt-1 px-2 py-1 bg-blue-50 rounded text-xs text-blue-700">
-              {state === 'listening' ? '🎙️ ' : state === 'processing' ? '🤔 ' : ''}{transcript}
+          {/* Recording / Continuous status */}
+          {(isRecording || continuousStatus) && (
+            <div className={`mt-1 px-2 py-1 rounded text-xs border ${isRecording ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
+              <span className={`font-medium ${isRecording ? 'text-red-500' : 'text-green-600'}`}>
+                {isRecording ? '🔴 ' + (interimText || '录音中...') : continuousStatus}
+              </span>
             </div>
           )}
         </div>
@@ -88,19 +152,13 @@ export default function App() {
         <div className="max-w-3xl mx-auto">
           {messages.length === 0 && (
             <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <p className="text-gray-300 text-5xl mb-4">🤖</p>
-                <p className="text-gray-400 text-lg">AI 视觉对话助手</p>
-                <p className="text-gray-300 text-sm mt-1">
-                  {displayActive ? '对着麦克风说话，或输入文字' : '点击 🎤 开始，或输入文字对话'}
+              <div className="text-center text-gray-400">
+                <p className="text-4xl mb-2">🤖</p>
+                <p className="text-sm">
+                  {convMode === 'continuous'
+                    ? '点击 🔊 开始连续对话，AI 会逐句回复'
+                    : '点击 🎤 录音提问，说完点击发送'}
                 </p>
-                {/* Compact diag when mic active */}
-                {isCapturing && (
-                  <div className="mt-3 text-[10px] text-gray-400 font-mono space-y-0.5">
-                    <p>📷 帧:{diag.framesCaptured} 🎤 块:{diag.audioChunksSent} 📶 电平:{audioLevel}</p>
-                    <p>📹 {diag.gUMStatus==='success'?'✅':'❌'} 🎙️ {diag.audioTrackState||'—'} {diag.gUMError||''}</p>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -108,22 +166,33 @@ export default function App() {
         </div>
       </div>
 
-      {/* Bottom bar */}
+      {/* Bottom controls: always visible */}
       <div className="border-t bg-white">
         <div className="max-w-3xl mx-auto">
           <TextInput onSend={handleSend} disabled={state==='processing'} />
           <ControlBar
-            isActive={isActive} isAccessibility={isAccessibility}
-            onToggleMic={toggleMic}
+            convMode={convMode}
+            isRecording={isRecording}
+            isAccessibility={isAccessibility}
+            onStartRecord={startRecording}
+            onStopRecord={stopRecording}
+            onStartContinuous={startContinuous}
+            onToggleMode={toggleMode}
             onToggleAccessibility={toggleAccessibility}
-            onOpenSettings={()=>setShowSettings(true)}
-            onOpenHistory={()=>setShowHistory(true)}
+            onOpenSettings={() => setShowSettings(true)}
+            onOpenHistory={() => setShowHistory(true)}
           />
         </div>
       </div>
 
-      {showSettings && <SettingsPanel onClose={()=>setShowSettings(false)} />}
-      {showHistory && <HistoryPanel onClose={()=>setShowHistory(false)} />}
+      {/* Settings toggle chip — always visible bottom-right */}
+      <div className="fixed bottom-4 right-4 flex gap-2">
+        <button onClick={() => setShowHistory(true)} className="w-9 h-9 rounded-full bg-white shadow-lg border flex items-center justify-center text-sm hover:bg-gray-50" title="历史">📋</button>
+        <button onClick={() => setShowSettings(true)} className="w-9 h-9 rounded-full bg-white shadow-lg border flex items-center justify-center text-sm hover:bg-gray-50" title="设置">⚙️</button>
+      </div>
+
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {showHistory && <HistoryPanel onClose={() => setShowHistory(false)} />}
     </div>
   );
 }

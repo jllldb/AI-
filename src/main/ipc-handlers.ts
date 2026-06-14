@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow, session } from 'electron';
 import { vadService } from './services/vad-service';
 import { conversationStore } from './store/conversation-store';
 import { preferenceStore } from './store/preference-store';
+import { whisperService } from './services/whisper-service';
 import { ConversationState } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
@@ -58,6 +59,23 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(IPC_CHANNELS.CONVERSATION_TOGGLE_ACCESSIBILITY, async (_e, enabled: boolean) => {
     getCM().toggleAccessibility(enabled);
     return true;
+  });
+
+  // ---- Conversation Mode ----
+  ipcMain.on('conv:mode', (_e, mode: string) => {
+    getCM().toggleContinuousMode(mode === 'continuous');
+  });
+
+  // ---- Transcription (local Whisper) ----
+  ipcMain.handle('transcribe:audio', async (_e, audioBase64: string) => {
+    try {
+      const wavBuffer = Buffer.from(audioBase64, 'base64');
+      const text = await whisperService.transcribeFromWav(wavBuffer);
+      return { text, error: null };
+    } catch (err: any) {
+      console.error('[Transcribe] Error:', err.message);
+      return { text: '', error: err.message || 'Whisper transcription failed' };
+    }
   });
 
   // ---- History ----

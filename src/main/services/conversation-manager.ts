@@ -30,16 +30,27 @@ export class ConversationManager {
   private availableProviders: Set<ModelChoice> = new Set();
   private modelProvider: ModelProvider = 'auto';
 
+  private continuousMode = false;
+
   init() {
     this.reloadConfig();
     vadService.setCallbacks({
       onSpeechStart: () => {
+        if (!this.continuousMode) return;
         this.speechStartTime = Date.now();
         emitState('listening');
         emitTranscript('🎤 正在听...');
       },
-      onSpeechEnd: (segments) => this.handleSpeechEnd(segments),
+      onSpeechEnd: (segments) => {
+        if (!this.continuousMode) return;
+        this.handleSpeechEnd(segments);
+      },
     });
+  }
+
+  toggleContinuousMode(enabled: boolean) {
+    this.continuousMode = enabled;
+    console.log('[Conv] Continuous mode:', enabled ? 'ON' : 'OFF');
   }
 
   handleFrame(jpegBase64: string, dhashHex: string) {
