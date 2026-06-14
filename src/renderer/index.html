@@ -11,26 +11,28 @@
   <script>
     (function() {
       var el = document.getElementById('preload-diag');
-      function show(msg, bg) { el.textContent = msg; el.style.background = bg; }
+      function show(msg, bg) { el.textContent = msg; el.style.background = bg; el.style.opacity = '1'; }
+      function hide() { el.style.transition = 'opacity 0.5s'; el.style.opacity = '0'; setTimeout(function(){ el.style.display = 'none'; }, 500); }
       show('⏳ 正在加载...', '#333');
       var start = Date.now();
+      var shown = false;
       var check = setInterval(function() {
         if (window.electronAPI) {
           clearInterval(check);
-          show('✅ electronAPI 已连接 (' + (Date.now()-start) + 'ms) | 点击 🎤 开始对话', '#1a8a3f');
-          // Test IPC round-trip
+          if (!shown) { show('✅ 已连接 (' + (Date.now()-start) + 'ms)', '#1a8a3f'); shown = true; }
           window.electronAPI.getPreferences().then(function(p) {
-            show('✅ 连接就绪 | 千问key:' + (p.qwenApiKey ? '✅' : '❌') + ' DeepSeek:' + (p.deepseekApiKey ? '✅' : '❌') + ' | 模型: ' + (p.deepseekApiKey ? 'DeepSeek' : '千问VL'), '#1a8a3f');
-          }).catch(function() { show('⚠️ 已连接但IPC异常', '#c77'); });
+            show('✅ 就绪 | ' + (p.deepseekApiKey ? 'DeepSeek' : '千问VL'), '#1a8a3f');
+            setTimeout(hide, 1500);
+          }).catch(function() { setTimeout(hide, 1000); });
         }
         if (Date.now() - start > 5000) {
           clearInterval(check);
-          show('❌ electronAPI 未加载 — preload脚本可能失败', '#c22');
+          show('❌ electronAPI 未加载', '#c22');
         }
       }, 200);
     })();
   </script>
-  <div id="root" style="margin-top:32px;"></div>
+  <div id="root"></div>
   <script type="module" src="./main.tsx"></script>
 </body>
 </html>

@@ -67,6 +67,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   });
 
   // ---- Transcription (local Whisper) ----
+  ipcMain.handle('whisper:status', async () => {
+    return whisperService.getStatus();
+  });
+
   ipcMain.handle('transcribe:audio', async (_e, audioBase64: string) => {
     try {
       const wavBuffer = Buffer.from(audioBase64, 'base64');
@@ -82,6 +86,45 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(IPC_CHANNELS.HISTORY_GET, async (_e, query?: string) => {
     if (query) return conversationStore.searchHistory(query);
     return conversationStore.getRecentTurns(50);
+  });
+
+  // ---- Verify API Key ----
+  ipcMain.handle('verify:api-key', async (_e, provider: string, apiKey: string) => {
+    try {
+      let result: { valid: boolean; message: string };
+      switch (provider) {
+        case 'qwen': {
+          const { initQwenClient } = require('./clients/qwen-client');
+          result = await initQwenClient(apiKey).verifyApiKey();
+          break;
+        }
+        case 'deepseek': {
+          const { initDeepSeekClient } = require('./clients/deepseek-client');
+          result = await initDeepSeekClient(apiKey).verifyApiKey();
+          break;
+        }
+        case 'openai': {
+          const { initOpenAIClient } = require('./clients/openai-client');
+          result = await initOpenAIClient(apiKey).verifyApiKey();
+          break;
+        }
+        case 'gemini': {
+          const { initGeminiClient } = require('./clients/gemini-client');
+          result = await initGeminiClient(apiKey).verifyApiKey();
+          break;
+        }
+        case 'claude': {
+          const { initClaudeClient } = require('./clients/claude-client');
+          result = await initClaudeClient(apiKey).verifyApiKey();
+          break;
+        }
+        default:
+          return { valid: false, message: '未知供应商: ' + provider };
+      }
+      return result;
+    } catch (err: any) {
+      return { valid: false, message: '内部错误: ' + (err.message || String(err)) };
+    }
   });
 
   // ---- Preferences ----

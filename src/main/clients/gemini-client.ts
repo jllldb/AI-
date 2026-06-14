@@ -7,6 +7,21 @@ export class GeminiClient {
   setApiKey(key: string) { this.apiKey = key; }
   setModel(model: string) { this.model = model; }
 
+  async verifyApiKey(): Promise<{ valid: boolean; message: string }> {
+    try {
+      // Use a minimal models.list call to verify the key
+      const response = await fetch(
+        this.baseUrl + '/models?key=' + this.apiKey,
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+      if (response.ok) return { valid: true, message: '✅ Gemini API Key 有效' };
+      if (response.status === 401 || response.status === 403) return { valid: false, message: '❌ Key 无效 (HTTP ' + response.status + ')' };
+      return { valid: false, message: '⚠️ API 返回: HTTP ' + response.status };
+    } catch (e: any) {
+      return { valid: false, message: '❌ 网络请求失败: ' + (e.message || String(e)) };
+    }
+  }
+
   async chat(messages: { role: string; content: string }[]): Promise<{ text: string; tokensUsed: number }> {
     // Convert to Gemini format
     const contents = messages

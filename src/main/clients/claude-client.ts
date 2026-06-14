@@ -7,6 +7,22 @@ export class ClaudeClient {
   setApiKey(key: string) { this.apiKey = key; }
   setModel(model: string) { this.model = model; }
 
+  async verifyApiKey(): Promise<{ valid: boolean; message: string }> {
+    try {
+      // Use a minimal messages list call to verify the key
+      const response = await fetch(this.baseUrl + '/v1/messages?limit=1', {
+        headers: { 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' },
+      });
+      // Anthropic returns 200 with empty list on valid key; 401 on invalid
+      if (response.ok) return { valid: true, message: '✅ Claude API Key 有效' };
+      if (response.status === 401 || response.status === 403) return { valid: false, message: '❌ Key 无效 (HTTP ' + response.status + ')' };
+      const body = await response.text().catch(() => '');
+      return { valid: false, message: '⚠️ API 返回: HTTP ' + response.status + (body ? ' — ' + body.slice(0, 120) : '') };
+    } catch (e: any) {
+      return { valid: false, message: '❌ 网络请求失败: ' + (e.message || String(e)) };
+    }
+  }
+
   async chat(messages: { role: string; content: string }[]): Promise<{ text: string; tokensUsed: number }> {
     // Separate system message
     const systemMsg = messages.find(m => m.role === 'system');

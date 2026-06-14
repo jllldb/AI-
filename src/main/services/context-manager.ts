@@ -19,14 +19,13 @@ export class ContextManager {
 
   buildMessages(context: ContextWindow, currentUserMessage: string): { role: string; content: string }[] {
     const messages: { role: string; content: string }[] = [];
-    let sysPrompt = '你是一个 AI 视觉对话助手，能够看到摄像头画面并听到用户说话。请用中文简洁自然地回答。';
-    if (context.summary) sysPrompt += '\n\n[之前对话摘要] ' + context.summary;
+    // Prompt: be a conversational partner, NOT a scene describer
+    let sysPrompt = '你是用户的AI聊天伙伴。重要规则：1) 正常对话时只回应用户说的话，不要描述画面；2) 只有用户明确说"看看""描述一下""我面前有什么"时才看图回答；3) 回答尽量简短，像微信聊天一样。';
+    if (context.summary) sysPrompt += '\n[之前摘要] ' + context.summary;
     messages.push({ role: 'system', content: sysPrompt });
     for (const turn of context.recentTurns) {
       if (turn.role === 'user' || turn.role === 'assistant') {
-        let content = turn.content;
-        if (turn.visualDescription) content = '[画面: ' + turn.visualDescription + ']\n' + content;
-        messages.push({ role: turn.role, content });
+        messages.push({ role: turn.role, content: turn.content });
       }
     }
     messages.push({ role: 'user', content: currentUserMessage });

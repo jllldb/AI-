@@ -10,6 +10,7 @@ import { geminiClient } from '../clients/gemini-client';
 import { claudeClient } from '../clients/claude-client';
 import { ollamaClient } from '../clients/ollama-client';
 import { ttsService } from './tts-service';
+import { whisperService } from './whisper-service';
 import { preferenceStore } from '../store/preference-store';
 import { emitState, emitTranscript, emitResponse, emitCost } from '../ipc-handlers';
 import { COST } from '../../shared/constants';
@@ -26,7 +27,7 @@ export class ConversationManager {
   private lastFrameSentTime = 0;
   private speechStartTime = 0;
   private lastResponseTime = 0;
-  private responseCooldownMs = 1000;
+  private responseCooldownMs = 1500;
   private availableProviders: Set<ModelChoice> = new Set();
   private modelProvider: ModelProvider = 'auto';
 
@@ -65,26 +66,47 @@ export class ConversationManager {
       console.log('[Conv] Cooldown active, ignoring speech');
       return;
     }
+    // Set cooldown immediately so VAD doesn't trigger again during processing
+    this.lastResponseTime = now;
 
-    emitState('processing');
     const speechDuration = ((now - this.speechStartTime) / 1000).toFixed(1);
 
     const merged = vadService.mergeSegments(segments);
     const wavBuffer = vadService.float32ToWav(merged, 16000);
-    const audioBase64 = wavBuffer.toString('base64');
 
+    // Emit transcript FIRST (before state change) so renderer captures user message
+    emitTranscript('⏳ 识别中...');
+
+    // STEP 1: Transcribe the audio
+    let transcribedText = '';
+    try {
+      console.log('[Conv] Transcribing audio, duration:', speechDuration + 's, samples:', merged.length);
+      transcribedText = await whisperService.transcribeFromWav(wavBuffer);
+      console.log('[Conv] Transcribed:', transcribedText || '(empty)');
+    } catch (e: any) {
+      console.error('[Conv] Whisper transcription failed:', e.message);
+      emitTranscript('⚠️ 语音识别失败: ' + e.message);
+    }
+
+    if (!transcribedText.trim()) {
+      emitTranscript('⚠️ 未识别到语音内容，请重试');
+      emitState('idle');
+      return;
+    }
+
+    // Show user speech BEFORE state change
+    emitTranscript('🎤 ' + transcribedText);
+
+    emitState('processing');
+
+    // STEP 2: Only send frame if user asks about visual environment
+    const visualKeywords = /(?:看到|看见|看看|看下|有什么|是什么|面前|画面|描述|环境|周围|镜头|摄像头)/i;
+    const userWantsVisual = visualKeywords.test(transcribedText);
+    console.log('[Conv] Visual check:', transcribedText.substring(0, 30), '→', userWantsVisual);
     let frameToSend: string | undefined;
-    if (this.lastFrameDhash) {
-      const isDup = frameDedup.isDuplicate(this.lastFrameDhash);
-      if (!isDup && this.lastFrameBase64) {
-        frameToSend = this.lastFrameBase64;
-        this.lastFrameSentTime = Date.now();
-      } else {
-        this.costSummary.callsSavedByDedup++;
-        if (frameDedup.getCachedDescription()) {
-          this.costSummary.callsSavedByCache++;
-        }
-      }
+    if (userWantsVisual && this.lastFrameBase64 && this.lastFrameDhash) {
+      frameToSend = this.lastFrameBase64;
+      this.lastFrameSentTime = Date.now();
     }
 
     const input: ConversationInput = {
@@ -94,30 +116,28 @@ export class ConversationManager {
     const modelChoice = modelRouter.route(input, this.availableProviders, this.modelProvider);
 
     // Show user speech as a message immediately
-    const userContent = `🎤 语音输入 (${speechDuration}s)`;
-    emitTranscript(userContent);
+    const userContent = transcribedText;
 
     try {
-      // Vary prompts to avoid repetitive responses
-      const prompts = [
-        '简短回复（1-2句话），不要重复，不要啰嗦。',
-        '用一句话回复用户。',
-        '简洁回答，只说重点。',
-        '短回复。不要说重复的话。',
-      ];
-      const speechPrompt = prompts[Math.floor(Math.random() * prompts.length)];
-
-      const context = contextManager.getContext();
+      const ctx = contextManager.getContext();
+      // Use recent turns only (buildMessages appends current message, but _callOne also adds it)
+      // So we pass context WITHOUT the current user message to avoid duplication
+      const sysMsg = '你是用户的AI聊天伙伴。重要规则：1) 正常对话时只回应用户说的话，不要描述画面；2) 只有用户明确说"看看""描述一下""我面前有什么"时才看图回答；3) 回答尽量简短，像微信聊天一样。';
+      const contextMsgs: { role: string; content: string }[] = [{ role: 'system', content: sysMsg }];
+      for (const t of ctx.recentTurns) {
+        if (t.role === 'user' || t.role === 'assistant') {
+          contextMsgs.push({ role: t.role, content: t.content });
+        }
+      }
       const result = await this.callAI(modelChoice, {
-        text: speechPrompt,
+        text: transcribedText,
         imageBase64: frameToSend,
-        contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
+        contextMessages: contextMsgs,
       });
 
       const response: AIResponse = {
         text: result.text, modelUsed: modelChoice, tokensUsed: result.tokensUsed,
       };
-      emitTranscript(userContent);
       emitResponse(response);
       emitState('speaking');
 
@@ -132,7 +152,7 @@ export class ConversationManager {
     } catch (error: any) {
       console.error('[Conv] Speech error:', error.message);
       this.lastResponseTime = Date.now();  // Cooldown even on error — prevent loop!
-      emitTranscript('❌ 识别失败: ' + (error.message || '未知错误'));
+      emitTranscript('❌ AI 调用失败: ' + (error.message || '未知错误'));
       emitState('idle');
     }
   }
@@ -149,20 +169,27 @@ export class ConversationManager {
 
     let response: AIResponse;
     try {
-      if (modelChoice === 'qwen') {
-        // Qwen handles both multimodal and text-only
-        const context = contextManager.getContext();
-        const qr = await qwenClient.multimodalChat({
-          imageBase64: frameToSend, text,
-          contextMessages: context.recentTurns.map(t => ({ role: t.role, content: t.content })),
-        });
-        response = { text: qr.responseText, visualDescription: qr.visualDescription, modelUsed: 'qwen', tokensUsed: qr.tokensUsed };
-        if (qr.visualDescription) frameDedup.cacheDescription(qr.visualDescription);
-      } else {
-        const context = contextManager.getContext();
-        const messages = contextManager.buildMessages(context, text);
-        const dr = await deepseekClient.chat(messages);
-        response = { text: dr.text, modelUsed: 'deepseek', tokensUsed: dr.tokensUsed };
+      const ctx = contextManager.getContext();
+      const sysPrompt = '你是用户的AI聊天伙伴。重要规则：1) 正常对话时只回应用户说的话，不要描述画面；2) 只有用户明确说"看看""描述一下""我面前有什么"时才看图回答；3) 回答尽量简短，像微信聊天一样。';
+      const contextMsgs: { role: string; content: string }[] = [{ role: 'system', content: sysPrompt }];
+      for (const t of ctx.recentTurns) {
+        if (t.role === 'user' || t.role === 'assistant') {
+          contextMsgs.push({ role: t.role, content: t.content });
+        }
+      }
+      const result = await this._callOne(modelChoice, {
+        text,
+        imageBase64: frameToSend,
+        contextMessages: contextMsgs,
+      });
+      response = { text: result.text, modelUsed: modelChoice, tokensUsed: result.tokensUsed };
+
+      // Cache visual description if Qwen returned one
+      if (modelChoice === 'qwen' && frameToSend) {
+        try {
+          const desc = await qwenClient.describeImage(frameToSend);
+          if (desc?.description) frameDedup.cacheDescription(desc.description);
+        } catch { /* best-effort */ }
       }
     } catch (err: any) {
       console.error('[Conv] API error:', err.message);
@@ -228,14 +255,23 @@ export class ConversationManager {
     imageBase64?: string;
     contextMessages?: { role: string; content: string }[];
   }): Promise<{ text: string; tokensUsed: number }> {
-    // Try preferred model, fall back to any available provider
+    const hasImage = !!params.imageBase64;
+    // Try preferred model, then fall back to available providers
     const fallbacks = [...this.availableProviders].filter(p => p !== model);
+    // If image present, prefer vision models in fallback order
+    if (hasImage) {
+      fallbacks.sort((a, b) => {
+        const aVis = modelRouter.supportsVision(a) ? 0 : 1;
+        const bVis = modelRouter.supportsVision(b) ? 0 : 1;
+        return aVis - bVis;
+      });
+    }
     const tryOrder = [model, ...fallbacks];
 
     let lastError = '';
     for (const m of tryOrder.slice(0, 3)) { // Try at most 3 providers
       try {
-        console.log('[Conv] Trying model:', m);
+        console.log('[Conv] Trying model:', m, hasImage ? '(image)' : '(text)');
         const result = await this._callOne(m, params);
         if (result) return result;
       } catch (e: any) {
@@ -252,28 +288,53 @@ export class ConversationManager {
     contextMessages?: { role: string; content: string }[];
   }): Promise<{ text: string; tokensUsed: number }> {
     const msgs = params.contextMessages || [];
+    const hasImage = !!params.imageBase64;
+    const modelSupportsVision = modelRouter.supportsVision(model);
+    const userText = params.text || '[语音]';
+
+    // If model doesn't support vision but we have an image, prepend a text description
+    let effectiveText = userText;
+    if (hasImage && !modelSupportsVision) {
+      // Try cached description first, then try Qwen quick describe, then generic note
+      const cached = frameDedup.getCachedDescription();
+      if (cached) {
+        effectiveText = `[画面描述] ${cached}\n\n[用户] ${userText}`;
+      } else {
+        // Try to get a quick description from Qwen (may fail if key overdue)
+        try {
+          const desc = await qwenClient.describeImage(params.imageBase64!);
+          if (desc?.description) {
+            frameDedup.cacheDescription(desc.description);
+            effectiveText = `[画面描述] ${desc.description}\n\n[用户] ${userText}`;
+          }
+        } catch {
+          effectiveText = `[注意：用户发送了图片但无视觉模型可用]\n\n${userText}`;
+        }
+      }
+    }
+
     switch (model) {
       case 'qwen':
-        return qwenClient.multimodalChat({ imageBase64: params.imageBase64, text: params.text, contextMessages: msgs })
+        return qwenClient.multimodalChat({ imageBase64: params.imageBase64, text: userText, contextMessages: msgs })
           .then(r => ({ text: r.responseText, tokensUsed: r.tokensUsed }));
       case 'deepseek':
-        return deepseekClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+        return deepseekClient.chat([...msgs, { role: 'user', content: effectiveText }]);
       case 'openai':
         return params.imageBase64
-          ? openaiClient.chatWithVision({ imageBase64: params.imageBase64, text: params.text, contextMessages: msgs })
-          : openaiClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+          ? openaiClient.chatWithVision({ imageBase64: params.imageBase64, text: userText, contextMessages: msgs })
+          : openaiClient.chat([...msgs, { role: 'user', content: userText }]);
       case 'gemini':
         return params.imageBase64
-          ? geminiClient.chatWithVision({ imageBase64: params.imageBase64, text: params.text })
-          : geminiClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+          ? geminiClient.chatWithVision({ imageBase64: params.imageBase64, text: userText })
+          : geminiClient.chat([...msgs, { role: 'user', content: userText }]);
       case 'claude':
         return params.imageBase64
-          ? claudeClient.chatWithVision({ imageBase64: params.imageBase64, text: params.text, contextMessages: msgs })
-          : claudeClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+          ? claudeClient.chatWithVision({ imageBase64: params.imageBase64, text: userText, contextMessages: msgs })
+          : claudeClient.chat([...msgs, { role: 'user', content: userText }]);
       case 'ollama':
         return params.imageBase64
-          ? ollamaClient.chatWithVision({ imageBase64: params.imageBase64, text: params.text })
-          : ollamaClient.chat([...msgs, { role: 'user', content: params.text || '[语音]' }]);
+          ? ollamaClient.chatWithVision({ imageBase64: params.imageBase64, text: userText })
+          : ollamaClient.chat([...msgs, { role: 'user', content: userText }]);
       default:
         throw new Error('Unknown model: ' + model);
     }

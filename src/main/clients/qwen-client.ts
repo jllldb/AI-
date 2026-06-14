@@ -18,7 +18,9 @@ export class QwenClient {
     const messages: any[] = [];
     if (params.contextMessages) {
       for (const msg of params.contextMessages) {
-        messages.push({ role: msg.role, content: msg.content });
+        // Ensure content is always a plain string (Qwen API rejects objects in text-only context)
+        const content = typeof msg.content === 'string' ? msg.content : String(msg.content || '');
+        messages.push({ role: msg.role, content });
       }
     }
     const contentParts: any[] = [];
@@ -31,18 +33,46 @@ export class QwenClient {
     if (params.text) {
       contentParts.push({ type: 'text', text: params.text });
     }
-    messages.push({ role: 'user', content: contentParts.length > 1 ? contentParts : contentParts[0] });
+    // Text-only: content must be a plain string. Multimodal: content is array.
+    const userContent = contentParts.length === 1 && contentParts[0].type === 'text'
+      ? params.text!
+      : contentParts;
+    messages.push({ role: 'user', content: userContent });
 
+    const body = JSON.stringify({ model: this.model, messages, max_tokens: 1024, temperature: 0.9 });
+    console.log('[Qwen] Sending', messages.length, 'msgs, body size:', body.length);
     const response = await fetch(this.baseUrl + '/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + this.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: this.model, messages, max_tokens: 1024, temperature: 0.9 }),
+      body,
     });
     if (!response.ok) throw new Error('Qwen API error: ' + response.status + ' ' + await response.text());
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content ?? '';
     const tokensUsed = data.usage?.total_tokens ?? 0;
     return { transcription: '', visualDescription: '', responseText: content, tokensUsed };
+  }
+
+  /** Verify API key by making a minimal models list call (1 token, near-zero cost) */
+  async verifyApiKey(): Promise<{ valid: boolean; message: string }> {
+    try {
+      const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/models', {
+        headers: { 'Authorization': 'Bearer ' + this.apiKey },
+      });
+      if (response.ok) {
+        return { valid: true, message: '✅ 千问 API Key 有效' };
+      }
+      const body = await response.text().catch(() => '');
+      if (response.status === 401 || response.status === 403) {
+        return { valid: false, message: '❌ Key 无效或无权访问 (HTTP ' + response.status + ')' };
+      }
+      if (response.status === 429) {
+        return { valid: false, message: '⚠️ 请求过于频繁，请稍后再试' };
+      }
+      return { valid: false, message: '⚠️ API 返回异常: HTTP ' + response.status + (body ? ' — ' + body.slice(0, 120) : '') };
+    } catch (e: any) {
+      return { valid: false, message: '❌ 网络请求失败: ' + (e.message || String(e)) };
+    }
   }
 
   async describeImage(imageBase64: string, prompt?: string): Promise<{ description: string; tokensUsed: number }> {

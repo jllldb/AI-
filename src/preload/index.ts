@@ -62,6 +62,14 @@ try {
     // Transcription
     transcribeAudio: (audioBase64: string): Promise<{ text: string; error: string | null }> =>
       ipcRenderer.invoke('transcribe:audio', audioBase64),
+
+    // Verify API key
+    verifyApiKey: (provider: string, apiKey: string): Promise<{ valid: boolean; message: string }> =>
+      ipcRenderer.invoke('verify:api-key', provider, apiKey),
+
+    // Whisper model status
+    getWhisperStatus: (): Promise<{ status: string; message: string }> =>
+      ipcRenderer.invoke('whisper:status'),
   });
   console.log('[Preload] electronAPI exposed successfully');
 } catch (err: any) {

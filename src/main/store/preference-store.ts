@@ -18,8 +18,8 @@ const DEFAULTS: Record<string, string> = {
   claudeModel: 'claude-sonnet-4-6',
 
   // TTS
-  ttsVoice: 'zh-CN-XiaoxiaoNeural',
-  ttsRate: '1.0',
+  ttsVoice: 'zh-CN-YunxiNeural',
+  ttsRate: '1.15',
 
   // Budget
   dailyBudget: '5',

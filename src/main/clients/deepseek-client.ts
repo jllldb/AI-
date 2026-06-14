@@ -7,6 +7,24 @@ export class DeepSeekClient {
   setApiKey(key: string) { this.apiKey = key; }
   setModel(model: string) { this.model = model; }
 
+  async verifyApiKey(): Promise<{ valid: boolean; message: string }> {
+    try {
+      // DeepSeek doesn't have a /models endpoint; use a minimal user balance check
+      const response = await fetch(this.baseUrl + '/user/balance', {
+        headers: { 'Authorization': 'Bearer ' + this.apiKey },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const info = data?.balance_infos ? ' (余额可用)' : '';
+        return { valid: true, message: '✅ DeepSeek API Key 有效' + info };
+      }
+      if (response.status === 401) return { valid: false, message: '❌ Key 无效 (HTTP 401)' };
+      return { valid: false, message: '⚠️ API 返回: HTTP ' + response.status };
+    } catch (e: any) {
+      return { valid: false, message: '❌ 网络请求失败: ' + (e.message || String(e)) };
+    }
+  }
+
   async chat(messages: { role: string; content: string }[]): Promise<{ text: string; tokensUsed: number }> {
     const response = await fetch(this.baseUrl + '/v1/chat/completions', {
       method: 'POST',

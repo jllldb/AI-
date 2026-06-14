@@ -11,8 +11,8 @@ export interface TTSOptions {
 
 export class TTSService {
   async synthesize(text: string, options: TTSOptions = {}): Promise<Buffer> {
-    const voice = options.voice || 'zh-CN-XiaoxiaoNeural';
-    const rate = options.rate || 1.0;
+    const voice = options.voice || 'zh-CN-YunxiNeural';
+    const rate = options.rate || 1.15;
     const rateStr = '+' + Math.round((rate - 1) * 100) + '%';
 
     const tts = new EdgeTTS({ voice, rate: rateStr });

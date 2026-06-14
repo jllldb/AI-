@@ -4,8 +4,7 @@
   "description": "AI 视觉对话助手",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "dev:win": "set ELECTRON_RUN_AS_NODE= && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && node launch-electron.js .\"",
     "build": "vite build && tsc -p tsconfig.main.json",
     "package": "vite build && tsc -p tsconfig.main.json && electron-builder",
     "typecheck": "tsc --noEmit"

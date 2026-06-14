@@ -9,6 +9,7 @@ import { initOpenAIClient } from './clients/openai-client';
 import { initGeminiClient } from './clients/gemini-client';
 import { initClaudeClient } from './clients/claude-client';
 import { initOllamaClient } from './clients/ollama-client';
+import { whisperService } from './services/whisper-service';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -84,6 +85,10 @@ async function createWindow() {
   initClaudeClient(prefs.claudeApiKey || '');
   initOllamaClient();
   registerIpcHandlers(mainWindow);
+
+  // Preload whisper model at startup (non-blocking)
+  console.log('[Main] Preloading whisper model...');
+  whisperService.preload();
 
   // Start conversation manager
   const { conversationManager } = require('./services/conversation-manager');

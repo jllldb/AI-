@@ -50,10 +50,31 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
     (window as any).electronAPI?.getPreferences().then((p: Record<string, string>) => setPrefs(p || {}));
   }, []);
 
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, string>>({});
+
   const update = (k: string, v: string) => {
     setPrefs(p => ({ ...p, [k]: v }));
     setDirty(true);
     setSaved(false);
+  };
+
+  const testApiKey = async (providerId: string, keyField: string) => {
+    const apiKey = prefs[keyField]?.trim();
+    if (!apiKey) {
+      setTestResults(p => ({ ...p, [providerId]: '⚠️ 请先输入 API Key' }));
+      return;
+    }
+    setTestingProvider(providerId);
+    setTestResults(p => ({ ...p, [providerId]: '' }));
+    try {
+      const result = await (window as any).electronAPI?.verifyApiKey(providerId, apiKey);
+      setTestResults(p => ({ ...p, [providerId]: result?.message || '未知结果' }));
+    } catch (err: any) {
+      setTestResults(p => ({ ...p, [providerId]: '❌ 测试失败: ' + (err.message || String(err)) }));
+    } finally {
+      setTestingProvider(null);
+    }
   };
 
   const saveAll = async () => {
@@ -121,9 +142,29 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                       placeholder="输入 API Key..."
                       className="w-full px-3 py-1.5 border rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
                     />
-                    <p className="text-[10px] text-gray-400 mt-1">
-                      <a href={p.link} className="underline hover:text-blue-500" target="_blank">获取 Key →</a>
-                    </p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-[10px] text-gray-400">
+                        <a href={p.link} className="underline hover:text-blue-500" target="_blank">获取 Key →</a>
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        {testResults[p.id] && (
+                          <span className={`text-[10px] ${testResults[p.id].startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>
+                            {testResults[p.id]}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => testApiKey(p.id, p.keyField)}
+                          disabled={testingProvider === p.id}
+                          className={`text-[10px] px-2 py-0.5 rounded font-medium border transition-colors ${
+                            testingProvider === p.id
+                              ? 'bg-gray-200 text-gray-400 cursor-wait'
+                              : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'
+                          }`}
+                        >
+                          {testingProvider === p.id ? '⏳' : '🧪 测试'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -138,8 +179,8 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
               onChange={e => update('ttsVoice', e.target.value)}
               className="w-full px-3 py-2 border rounded-lg text-sm mb-2"
             >
+              <option value="zh-CN-YunxiNeural">云希 (男声, 沉稳自然)</option>
               <option value="zh-CN-XiaoxiaoNeural">晓晓 (女声, 活泼)</option>
-              <option value="zh-CN-YunxiNeural">云希 (男声, 叙事)</option>
               <option value="zh-CN-XiaoyiNeural">晓伊 (女声, 温柔)</option>
               <option value="zh-CN-YunyangNeural">云扬 (男声, 新闻)</option>
               <option value="zh-CN-XiaochenNeural">晓辰 (女声, 自然)</option>
