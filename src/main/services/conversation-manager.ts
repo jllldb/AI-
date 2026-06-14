@@ -26,7 +26,7 @@ export class ConversationManager {
   private lastFrameSentTime = 0;
   private speechStartTime = 0;
   private lastResponseTime = 0;
-  private responseCooldownMs = 3000;
+  private responseCooldownMs = 1000;
   private availableProviders: Set<ModelChoice> = new Set();
   private modelProvider: ModelProvider = 'auto';
 
@@ -89,10 +89,10 @@ export class ConversationManager {
     try {
       // Vary prompts to avoid repetitive responses
       const prompts = [
-        '用户正在和你说话。简短自然地回应（2-3句话），不要啰嗦。',
-        '用户想和你聊天。用轻松随意的语气回应，不要长篇大论。',
-        '用户向你提问。给出简洁有用的回答。',
-        '用户需要帮助。一句话回应，然后问是否需要更多帮助。',
+        '简短回复（1-2句话），不要重复，不要啰嗦。',
+        '用一句话回复用户。',
+        '简洁回答，只说重点。',
+        '短回复。不要说重复的话。',
       ];
       const speechPrompt = prompts[Math.floor(Math.random() * prompts.length)];
 

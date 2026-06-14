@@ -11,7 +11,7 @@ export class DeepSeekClient {
     const response = await fetch(this.baseUrl + '/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + this.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: this.model, messages, max_tokens: 512, temperature: 0.8 }),
+      body: JSON.stringify({ model: this.model, messages, max_tokens: 200, temperature: 0.9 }),
     });
     if (!response.ok) throw new Error('DeepSeek API error: ' + response.status);
     const data = await response.json();
